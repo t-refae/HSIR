@@ -1,6 +1,4 @@
-# ---------------------------------------------------------------------------
-# ODE models
-# ---------------------------------------------------------------------------
+#### ODE models ####
 
 homog_SIR <- function(t, state, params) {
   with(as.list(c(state, params)), {
@@ -48,9 +46,7 @@ simulate_sir <- function(init_state, times, params, model) {
   data.table::as.data.table(out)
 }
 
-# ---------------------------------------------------------------------------
-# Data preparation
-# ---------------------------------------------------------------------------
+#### data prep ####
 
 combine_trajectory_outputs <- function(homog_out, HS_out) {
   homog_out <- data.table::copy(homog_out)
@@ -80,7 +76,7 @@ make_combined_long <- function(combined_data) {
       Compartment = factor(
         Compartment,
         levels = c("C", "I"),
-        labels = c("Cumulative Incidence", "Infected")
+        labels = c("Cumulative Incidence", "Prevalence")
       )
     )
 }
@@ -98,16 +94,6 @@ make_delta_df <- function(homog_out, HS_out) {
     )
 }
 
-calculate_auc_differences <- function(homog_out, HS_out) {
-  data.frame(
-    metric = c("Infected", "Cumulative Incidence"),
-    auc_difference = c(
-      pracma::trapz(homog_out$time, abs(homog_out$I - HS_out$I)),
-      pracma::trapz(homog_out$time, abs(homog_out$C - HS_out$C))
-    )
-  )
-}
-
 make_cases_from_cumulative <- function(out, times, population_size) {
   data.frame(
     Day = times,
@@ -115,9 +101,29 @@ make_cases_from_cumulative <- function(out, times, population_size) {
   )
 }
 
-# ---------------------------------------------------------------------------
-# Posterior processing
-# ---------------------------------------------------------------------------
+make_stan_cases_from_cumulative <- function(out, population_size) {
+  round(diff(out$C) * population_size)
+}
+
+make_stan_data <- function(
+    n_days,
+    y0,
+    t0,
+    ts,
+    population_size,
+    cases
+) {
+  list(
+    n_days = n_days,
+    y0 = y0,
+    t0 = t0,
+    ts = ts,
+    N = population_size,
+    cases = cases[seq_len(n_days - 1)]
+  )
+}
+
+#### posterior processing ####
 
 extract_posterior_draws <- function(fit, variables, n_draws = 500, seed = 2) {
   posterior_draws <- posterior::as_draws_df(fit$draws(variables))
@@ -190,9 +196,7 @@ summarize_posterior_incidence <- function(posterior_incidence) {
   ]
 }
 
-# ---------------------------------------------------------------------------
-# Plotting functions
-# ---------------------------------------------------------------------------
+#### plotting ####
 
 plot_trajectories_faceted <- function(combined_long) {
   ggplot2::ggplot(
@@ -237,7 +241,7 @@ plot_absolute_differences <- function(delta_df) {
         delta_cumulative_incidence = "dotted"
       ),
       labels = c(
-        delta_infected = "Infected",
+        delta_infected = "Prevalence",
         delta_cumulative_incidence = "Cumulative Incidence"
       )
     ) +
@@ -315,9 +319,9 @@ plot_fit_to_data <- function(
     )
 }
 
-assemble_fig_1_panel <- function(fig_1_c, fig_1_d, plot_fit_1, plot_fit_2) {
+assemble_fig_1_panel <- function(fig_1_a, fig_1_b, plot_fit_1, plot_fit_2) {
   (
-    (fig_1_c + fig_1_d) /
+    (fig_1_a + fig_1_b) /
       (plot_fit_1 + plot_fit_2)
   ) +
     patchwork::plot_layout(guides = "keep") +
