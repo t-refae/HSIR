@@ -6,7 +6,7 @@ tar_option_set(
   packages = c(
     "deSolve", "data.table", "dplyr", "tidyr", "ggplot2", "patchwork", "posterior",
     "cmdstanr", "stantargets", "purrr", "tibble", "ggh4x", "ggridges", "scales",
-    "viridisLite"
+    "viridisLite", "latex2exp"
   ),
   format = "rds"
 )
@@ -440,6 +440,226 @@ list(
         "outputs",
         "Fig_2_dynamic_speed_comp_ridge_plot.pdf"
       ),
+      width = 12,
+      height = 9
+    ),
+    format = "file"
+  ),
+  
+  #### S/HIT differences and VOI posterior summaries ####
+  
+  tar_target(
+    hit_differences_parent_dir,
+    "data/processed/HIT_differences"
+  ),
+  
+  tar_target(
+    hit_differences_hs_dir,
+    file.path(hit_differences_parent_dir, "HS")
+  ),
+  
+  tar_target(
+    hit_differences_homog_dir,
+    file.path(hit_differences_parent_dir, "Homog")
+  ),
+  
+  tar_target(
+    VOI_thetas,
+    1:4
+  ),
+  
+  tar_target(
+    VOI_desired_thetas,
+    paste0("Theta_", VOI_thetas)
+  ),
+  
+  tar_target(
+    VOI_true_params,
+    make_voi_true_params(
+      true_params = dynamic_speed_comp_dt,
+      voi_thetas = VOI_thetas
+    )
+  ),
+  
+  tar_target(
+    VOI_hs_rdata_files,
+    list_voi_rdata_files(
+      parent_dir = hit_differences_hs_dir,
+      desired_thetas = VOI_desired_thetas
+    ),
+    format = "file"
+  ),
+  
+  tar_target(
+    VOI_homog_rdata_files,
+    list_voi_rdata_files(
+      parent_dir = hit_differences_homog_dir,
+      desired_thetas = VOI_desired_thetas
+    ),
+    format = "file"
+  ),
+  
+  tar_target(
+    VOI_hs_loaded_objects,
+    load_voi_rdata_objects(
+      rdata_files = VOI_hs_rdata_files,
+      desired_thetas = VOI_desired_thetas,
+      prefix = "VOI",
+      suffix = NULL
+    )
+  ),
+  
+  tar_target(
+    VOI_homog_loaded_objects,
+    load_voi_rdata_objects(
+      rdata_files = VOI_homog_rdata_files,
+      desired_thetas = VOI_desired_thetas,
+      prefix = NULL,
+      suffix = "homog"
+    )
+  ),
+  
+  tar_target(
+    VOI_hs_vars,
+    c("beta", "gamma", "cv", "R0")
+  ),
+  
+  tar_target(
+    VOI_hs_all_draws,
+    make_voi_parameter_draws_df(
+      loaded_objects = VOI_hs_loaded_objects,
+      desired_thetas = VOI_desired_thetas,
+      voi_thetas = VOI_thetas,
+      vars = VOI_hs_vars
+    )
+  ),
+  
+  tar_target(
+    VOI_true_vals_long,
+    make_voi_true_values_long(
+      true_params = VOI_true_params,
+      voi_thetas = VOI_thetas,
+      vars = VOI_hs_vars
+    )
+  ),
+  
+  tar_target(
+    VOI_hs_all_draws_trim,
+    trim_voi_parameter_draws(
+      draws_df = VOI_hs_all_draws,
+      r0_upper = 6.5
+    )
+  ),
+  
+  tar_target(
+    VOI_ridge_plot,
+    plot_voi_parameter_ridges(
+      draws_df = VOI_hs_all_draws_trim,
+      true_values_df = VOI_true_vals_long
+    )
+  ),
+  
+  tar_target(
+    VOI_ridge_plot_pdf,
+    save_ggplot_pdf_plain(
+      plot = VOI_ridge_plot,
+      path = file.path(manuscript_figures_dir, "VOI_ridge_plot.pdf"),
+      width = 12,
+      height = 16
+    ),
+    format = "file"
+  ),
+  
+  tar_target(
+    HS_x_stars,
+    summarize_hs_x_stars(
+      loaded_objects = VOI_hs_loaded_objects,
+      voi_thetas = VOI_thetas
+    )
+  ),
+  
+  tar_target(
+    Homog_x_stars,
+    summarize_homog_x_stars(
+      loaded_objects = VOI_homog_loaded_objects,
+      voi_thetas = VOI_thetas
+    )
+  ),
+  
+  tar_target(
+    true_HS_x_star,
+    calculate_true_hs_x_star(VOI_true_params)
+  ),
+  
+  tar_target(
+    S_HS,
+    summarize_S_by_model(
+      loaded_objects = VOI_hs_loaded_objects,
+      voi_thetas = VOI_thetas,
+      model_type = "Heterogeneous",
+      object_prefix = "VOI",
+      object_suffix = NULL
+    )
+  ),
+  
+  tar_target(
+    S_Homog,
+    summarize_S_by_model(
+      loaded_objects = VOI_homog_loaded_objects,
+      voi_thetas = VOI_thetas,
+      model_type = "Homogeneous",
+      object_prefix = NULL,
+      object_suffix = "homog"
+    )
+  ),
+  
+  tar_target(
+    S_HS_diff,
+    make_S_minus_xstar_df(
+      S_summary = S_HS,
+      x_stars = HS_x_stars
+    )
+  ),
+  
+  tar_target(
+    S_Homog_diff,
+    make_S_minus_xstar_df(
+      S_summary = S_Homog,
+      x_stars = Homog_x_stars
+    )
+  ),
+  
+  tar_target(
+    fig3_df,
+    make_fig3_df(
+      S_HS_diff = S_HS_diff,
+      S_Homog_diff = S_Homog_diff
+    )
+  ),
+  
+  tar_target(
+    theta_labels_named_fig3,
+    c(
+      "Theta_1" = "2 GI pre-peak",
+      "Theta_2" = "1 GI pre-peak",
+      "Theta_3" = "At peak",
+      "Theta_4" = "Complete"
+    )
+  ),
+  
+  tar_target(
+    fig_3,
+    plot_fig3_S_minus_xstar(
+      fig3_df = fig3_df,
+      theta_labels_named = theta_labels_named_fig3
+    )
+  ),
+  
+  tar_target(
+    fig_3_pdf,
+    save_ggplot_pdf(
+      plot = fig_3,
+      path = file.path(manuscript_figures_dir, "Fig_3_HIT_differences.pdf"),
       width = 12,
       height = 9
     ),
