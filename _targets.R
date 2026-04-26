@@ -5,7 +5,8 @@ library(stantargets)
 tar_option_set(
   packages = c(
     "deSolve", "data.table", "dplyr", "tidyr", "ggplot2", "patchwork", "posterior",
-    "cmdstanr", "stantargets"
+    "cmdstanr", "stantargets", "purrr", "tibble", "ggh4x", "ggridges", "scales",
+    "viridisLite"
   ),
   format = "rds"
 )
@@ -286,5 +287,164 @@ list(
       height = 15
     ),
     format = "file"
+  ),
+  
+  #### Inference-based identifiability analysis of cv as a function of speed of dynamics ####
+  tar_target(
+    dynamic_speed_comp_parent_dir,
+    "data/processed/dynamic_speed_comp"
+  ),
+  
+  
+  tar_target(
+    dynamic_speed_comp_dt,
+    make_dynamic_speed_comp_dt()
+  ),
+  
+  tar_target(
+    dynamic_speed_comp_model,
+    "HS"
+  ),
+  
+  tar_target(
+    dynamic_speed_comp_LL,
+    "pois"
+  ),
+
+  tar_target(
+    dynamic_speed_comp_TS_type,
+    "PTS"
+  ),
+
+  tar_target(
+    dynamic_speed_comp_theta,
+    1:12
+  ),
+
+  tar_target(
+    dynamic_speed_window_levels,
+    c("-2 GI pre-peak", "-1 GI pre-peak", "At peak", "Complete")
+  ),
+
+  tar_target(
+    dynamic_speed_setting_levels,
+    c("Fast", "Reference", "Slow")
+  ),
+
+  tar_target(
+    dynamic_speed_desired_thetas,
+    paste(
+      "Theta",
+      dynamic_speed_comp_theta,
+      dynamic_speed_comp_LL,
+      dynamic_speed_comp_TS_type,
+      sep = "_"
+    )
+  ),
+
+  tar_target(
+    dynamic_speed_matched_folders,
+    find_dynamic_speed_matched_folders(
+      parent_dir = dynamic_speed_comp_parent_dir,
+      desired_thetas = dynamic_speed_desired_thetas
+    )
+  ),
+
+  tar_target(
+    dynamic_speed_rdata_files,
+    list_dynamic_speed_rdata_files(
+      parent_dir = dynamic_speed_comp_parent_dir,
+      matched_folders = dynamic_speed_matched_folders
+    ),
+    format = "file"
+  ),
+
+  tar_target(
+    dynamic_speed_loaded_objects,
+    load_dynamic_speed_rdata_objects(
+      rdata_files = dynamic_speed_rdata_files,
+      desired_thetas = dynamic_speed_desired_thetas
+    )
+  ),
+
+  tar_target(
+    dynamic_speed_true_params,
+    make_dynamic_speed_true_params(
+      dt = dynamic_speed_comp_dt,
+      theta = dynamic_speed_comp_theta
+    )
+  ),
+
+  tar_target(
+    dynamic_speed_cv_draws_df,
+    make_dynamic_speed_cv_draws_df(
+      loaded_objects = dynamic_speed_loaded_objects,
+      desired_thetas = dynamic_speed_desired_thetas,
+      window_levels = dynamic_speed_window_levels,
+      setting_levels = dynamic_speed_setting_levels
+    )
+  ),
+
+  tar_target(
+    dynamic_speed_true_cv_df,
+    make_dynamic_speed_true_cv_df(
+      true_params = dynamic_speed_true_params,
+      window_levels = dynamic_speed_window_levels,
+      setting_levels = dynamic_speed_setting_levels
+    )
+  ),
+
+  tar_target(
+    dynamic_speed_p_cv,
+    plot_dynamic_speed_cv_density_matrix(
+      cv_draws_df = dynamic_speed_cv_draws_df,
+      true_cv_df = dynamic_speed_true_cv_df
+    )
+  ),
+
+  tar_target(
+    dynamic_speed_cv_ridge_df,
+    make_dynamic_speed_cv_ridge_df(
+      cv_draws_df = dynamic_speed_cv_draws_df,
+      setting_levels = dynamic_speed_setting_levels,
+      window_levels = dynamic_speed_window_levels
+    )
+  ),
+
+  tar_target(
+    dynamic_speed_ridge_plot_cv_4rows,
+    plot_dynamic_speed_cv_ridges_by_window(
+      cv_ridge_df = dynamic_speed_cv_ridge_df
+    )
+  ),
+
+  tar_target(
+    dynamic_speed_p_cv_pdf,
+    save_ggplot_pdf(
+      plot = dynamic_speed_p_cv,
+      path = file.path(
+        "outputs",
+        "dynamic_speed_comp_cv_plot_matrix.pdf"
+      ),
+      width = 12,
+      height = 9
+    ),
+    format = "file"
+  ),
+
+  tar_target(
+    dynamic_speed_ridge_plot_cv_4rows_pdf,
+    save_ggplot_pdf(
+      plot = dynamic_speed_ridge_plot_cv_4rows,
+      path = file.path(
+        "outputs",
+        "Fig_2_dynamic_speed_comp_ridge_plot.pdf"
+      ),
+      width = 12,
+      height = 9
+    ),
+    format = "file"
   )
+
+  
 )

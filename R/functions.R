@@ -196,6 +196,275 @@ summarize_posterior_incidence <- function(posterior_incidence) {
   ]
 }
 
+
+#### dynamic speed / partial time-series cv inference ####
+make_dynamic_speed_comp_dt <- function() {
+  # fast, ref, slow (in order of beta)
+  
+  beta_vals <- c(1.2, 0.9, 0.6)
+  gamma_vals <- c(0.4, 0.3, 0.2)
+  R0_val <- 3 # fixed here
+  n_intervals <- c(-2, -1, 0, 1000) # partial time-series cropping (last is full TS)
+  cv_val <- 1
+  theta_vals <- seq(1, length(beta_vals)*length(n_intervals))
+  
+  out <- data.table(Theta = paste0("Theta_{", theta_vals, "}"),
+                    beta = rep(beta_vals, each=length(n_intervals)),
+                    gamma = rep(gamma_vals, each=length(n_intervals)),
+                    cv = rep(cv_val, length(theta_vals)),
+                    n_intervals = rep(n_intervals, times = length(beta_vals)),
+                    R0 = rep(R0_val, length(n_intervals))
+  )
+  
+  out
+}
+
+theta_to_dynamic_speed_setting <- function(theta_val) {
+  dplyr::case_when(
+    theta_val %in% 1:4 ~ "Fast",
+    theta_val %in% 5:8 ~ "Reference",
+    theta_val %in% 9:12 ~ "Slow",
+    TRUE ~ NA_character_
+  )
+}
+
+find_dynamic_speed_matched_folders <- function(parent_dir, desired_thetas) {
+  all_files <- list.files(parent_dir)
+  
+  matched_folders <- all_files[
+    grepl(
+      paste(desired_thetas, collapse = "|"),
+      all_files
+    )
+  ]
+  
+  if (length(matched_folders) == 0) {
+    stop(
+      "No dynamic-speed folders matched the requested theta patterns in: ",
+      parent_dir
+    )
+  }
+  
+  matched_folders
+}
+
+list_dynamic_speed_rdata_files <- function(parent_dir, matched_folders) {
+  rdata_files <- list.files(
+    file.path(parent_dir, matched_folders),
+    pattern = "\\.RData$",
+    full.names = TRUE
+  )
+  
+  if (length(rdata_files) == 0) {
+    stop(
+      "No .RData files found under matched dynamic-speed folders in: ",
+      parent_dir
+    )
+  }
+  
+  rdata_files
+}
+
+load_dynamic_speed_rdata_objects <- function(rdata_files, desired_thetas) {
+  loaded_objects <- list()
+  
+  for (theta_name in desired_thetas) {
+    scoped_files <- rdata_files[grep(theta_name, rdata_files)]
+    
+    if (length(scoped_files) == 0) {
+      warning("No .RData files found for ", theta_name)
+      next
+    }
+    
+    for (file in scoped_files) {
+      temp_env <- new.env(parent = emptyenv())
+      loaded_names <- load(file, envir = temp_env)
+      
+      for (loaded_name in loaded_names) {
+        new_name <- paste0(theta_name, "_", loaded_name)
+        loaded_objects[[new_name]] <- get(loaded_name, envir = temp_env)
+      }
+    }
+  }
+  
+  if (length(loaded_objects) == 0) {
+    stop("No dynamic-speed RData objects were loaded.")
+  }
+  
+  loaded_objects
+}
+
+make_dynamic_speed_true_params <- function(dt, theta) {
+  true_params <- as.data.frame(dt)
+  true_params$theta_raw <- theta
+  true_params
+}
+
+make_dynamic_speed_cv_draws_df <- function(
+    loaded_objects,
+    desired_thetas,
+    window_levels,
+    setting_levels = c("Fast", "Reference", "Slow")
+) {
+  purrr::map_dfr(seq_along(desired_thetas), function(theta_val) {
+    obj_name <- paste0(desired_thetas[theta_val], "_cv_draws")
+    
+    if (!obj_name %in% names(loaded_objects)) {
+      warning("Missing object: ", obj_name)
+      return(NULL)
+    }
+    
+    samples <- as.vector(loaded_objects[[obj_name]])
+    window_idx <- ((theta_val - 1) %% length(window_levels)) + 1
+    
+    tibble::tibble(
+      value = samples,
+      Theta = theta_val,
+      setting = factor(
+        theta_to_dynamic_speed_setting(theta_val),
+        levels = setting_levels
+      ),
+      window = factor(
+        window_levels[window_idx],
+        levels = window_levels
+      )
+    )
+  })
+}
+
+make_dynamic_speed_true_cv_df <- function(
+    true_params,
+    window_levels,
+    setting_levels = c("Fast", "Reference", "Slow")
+) {
+  true_params |>
+    dplyr::select(Theta, true_value = cv, theta_raw) |>
+    dplyr::mutate(
+      setting = factor(
+        theta_to_dynamic_speed_setting(theta_raw),
+        levels = setting_levels
+      ),
+      window_idx = ((theta_raw - 1) %% length(window_levels)) + 1,
+      window = factor(
+        window_levels[window_idx],
+        levels = window_levels
+      )
+    )
+}
+
+plot_dynamic_speed_cv_density_matrix <- function(cv_draws_df, true_cv_df) {
+  ggplot2::ggplot(
+    cv_draws_df,
+    ggplot2::aes(x = value, fill = window)
+  ) +
+    ggplot2::geom_density(alpha = 0.6, color = NA) +
+    ggh4x::facet_grid2(
+      rows = ggplot2::vars(setting),
+      cols = ggplot2::vars(window),
+      scales = "free",
+      independent = "all",
+      strip = ggh4x::strip_nested(
+        text_x = list(ggplot2::element_text(angle = 0)),
+        text_y = list(ggplot2::element_text(angle = 0))
+      )
+    ) +
+    ggplot2::geom_vline(
+      data = true_cv_df,
+      ggplot2::aes(xintercept = true_value),
+      inherit.aes = FALSE,
+      linetype = "dashed",
+      color = "black",
+      linewidth = 1
+    ) +
+    ggplot2::scale_fill_viridis_d(
+      option = "plasma",
+      end = 0.85,
+      name = NULL
+    ) +
+    ggplot2::labs(
+      x = "CV Value",
+      y = "Density"
+    ) +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(
+      strip.text = ggplot2::element_text(size = 14, face = "bold"),
+      legend.position = "none",
+      axis.title.x = ggplot2::element_text(size = 14, face = "bold"),
+      axis.title.y = ggplot2::element_text(size = 14, face = "bold"),
+      panel.spacing = grid::unit(1, "lines")
+    ) +
+    ggplot2::scale_x_continuous(
+      breaks = scales::pretty_breaks(n = 3)
+    ) +
+    ggplot2::scale_y_continuous(
+      breaks = scales::pretty_breaks(n = 3)
+    )
+}
+
+make_dynamic_speed_cv_ridge_df <- function(
+    cv_draws_df,
+    setting_levels = c("Fast", "Reference", "Slow"),
+    window_levels = c("-2 GI pre-peak", "-1 GI pre-peak", "At peak", "Complete")
+) {
+  ridge_levels <- as.vector(
+    outer(setting_levels, window_levels, paste, sep = " — ")
+  )
+  
+  cv_draws_df |>
+    dplyr::mutate(
+      setting = factor(as.character(setting), levels = setting_levels),
+      window = factor(as.character(window), levels = window_levels),
+      ridge_label = factor(
+        paste(setting, window, sep = " — "),
+        levels = ridge_levels
+      )
+    )
+}
+
+plot_dynamic_speed_cv_ridges_by_window <- function(cv_ridge_df) {
+  ggplot2::ggplot(
+    cv_ridge_df,
+    ggplot2::aes(
+      x = value,
+      y = setting,
+      fill = ggplot2::after_stat(x)
+    )
+  ) +
+    ggridges::geom_density_ridges_gradient(
+      scale = 3,
+      rel_min_height = 0.01,
+      color = "white"
+    ) +
+    ggplot2::geom_vline(
+      xintercept = 1,
+      linetype = "dashed",
+      color = "black",
+      linewidth = 0.8
+    ) +
+    ggplot2::facet_grid(
+      window ~ .,
+      scales = "free_y",
+      space = "free_y"
+    ) +
+    ggplot2::scale_fill_viridis_c(
+      option = "plasma",
+      end = 0.85,
+      name = NULL
+    ) +
+    ggplot2::labs(
+      x = "CV value",
+      y = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 14) +
+    ggplot2::theme(
+      strip.text.y = ggplot2::element_text(face = "bold"),
+      axis.text.y = ggplot2::element_text(size = 11),
+      legend.position = "none"
+    )
+}
+
+
+
 #### plotting ####
 
 plot_trajectories_faceted <- function(combined_long) {
