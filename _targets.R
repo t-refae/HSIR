@@ -881,6 +881,49 @@ list(
       height = 9
     ),
     format = "file"
+  ),
+  
+  #### Post-NPI information gain: CV posteriors by observed generation interval ####
+  
+  tar_target(
+    npi_informing_parent_dir,
+    "data/processed/NPI_inform_release"
+  ),
+  
+  tar_target(
+    npi_informing_cv_files,
+    list_npi_informing_cv_files(
+      parent_dir = npi_informing_parent_dir
+    ),
+    format = "file"
+  ),
+  
+  tar_target(
+    npi_informing_cv_draws_df,
+    make_npi_informing_cv_draws_df(
+      cv_files = npi_informing_cv_files
+    )
+  ),
+  
+  tar_target(
+    NPI_informing_plot,
+    plot_npi_informing_cv_posteriors(
+      cv_draws_df = npi_informing_cv_draws_df
+    )
+  ),
+  
+  tar_target(
+    NPI_informing_plot_pdf,
+    save_ggplot_pdf(
+      plot = NPI_informing_plot,
+      path = file.path(
+        manuscript_figures_dir,
+        "CV_posteriors_post_NPI_to_inform_release.pdf"
+      ),
+      width = 6,
+      height = 9
+    ),
+    format = "file"
   )
 
   

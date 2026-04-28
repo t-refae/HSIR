@@ -1553,3 +1553,138 @@ plot_npi_tradeoff_grid <- function(df_tradeoff_grid) {
       )
     )
 }
+
+#### Post-NPI information gain: CV posterior distributions ####
+
+list_npi_informing_cv_files <- function(parent_dir) {
+  if (!dir.exists(parent_dir)) {
+    stop("Directory does not exist: ", parent_dir)
+  }
+  
+  cv_files <- list.files(
+    parent_dir,
+    pattern = "_cv_draws\\.RData$",
+    recursive = TRUE,
+    full.names = TRUE
+  )
+  
+  cv_files <- cv_files[grepl("NPI_HS", cv_files)]
+  
+  if (length(cv_files) == 0) {
+    stop(
+      "No NPI_HS *_cv_draws.RData files found under: ",
+      parent_dir
+    )
+  }
+  
+  sort(cv_files)
+}
+
+parse_npi_informing_theta_info <- function(path) {
+  fname <- basename(path)
+  
+  theta_chr <- sub(
+    pattern = ".*Theta_([0-9]+).*",
+    replacement = "\\1",
+    x = fname
+  )
+  
+  theta <- suppressWarnings(as.integer(theta_chr))
+  
+  if (is.na(theta)) {
+    stop("Could not parse Theta number from file name: ", fname)
+  }
+  
+  tibble::tibble(
+    theta = theta,
+    eff = dplyr::if_else(theta <= 4, 0.4, 0.8),
+    GI = (theta - 1) %% 4
+  )
+}
+
+load_single_npi_cv_draw_file <- function(path) {
+  temp_env <- new.env(parent = emptyenv())
+  loaded_names <- load(path, envir = temp_env)
+  
+  if (!"cv_draws" %in% loaded_names) {
+    stop("File does not contain an object named cv_draws: ", path)
+  }
+  
+  cv_draws <- get("cv_draws", envir = temp_env)
+  
+  info <- parse_npi_informing_theta_info(path)
+  
+  cv_df <- posterior::as_draws_df(cv_draws)
+  
+  if (!"cv" %in% names(cv_df)) {
+    stop("Object cv_draws does not contain a column named cv in: ", path)
+  }
+  
+  cv_df |>
+    dplyr::select(cv) |>
+    dplyr::mutate(
+      theta = info$theta,
+      eff = info$eff,
+      GI = info$GI,
+      source_file = path
+    )
+}
+
+make_npi_informing_cv_draws_df <- function(cv_files) {
+  purrr::map_dfr(
+    cv_files,
+    load_single_npi_cv_draw_file
+  )
+}
+
+plot_npi_informing_cv_posteriors <- function(cv_draws_df) {
+  cv_draws_df |>
+    dplyr::mutate(
+      GI = factor(
+        GI,
+        levels = 0:3,
+        labels = c("+0 GI", "+1 GI", "+2 GI", "+3 GI")
+      ),
+      eff = factor(eff)
+    ) |>
+    ggplot2::ggplot(
+      ggplot2::aes(
+        x = cv,
+        y = GI,
+        fill = eff
+      )
+    ) +
+    ggridges::geom_density_ridges(
+      alpha = 0.6,
+      scale = 1.1,
+      rel_min_height = 0.01,
+      panel_scaling = FALSE
+    ) +
+    ggplot2::geom_vline(
+      xintercept = 1,
+      linetype = "dashed",
+      linewidth = 0.8,
+      color = "black"
+    ) +
+    ggplot2::facet_wrap(
+      ~ eff,
+      ncol = 1,
+      labeller = ggplot2::as_labeller(
+        c(
+          `0.4` = "NPI eff = 0.4",
+          `0.8` = "NPI eff = 0.8"
+        )
+      )
+    ) +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::labs(
+      x = "Posterior CV",
+      y = "Observed window after NPI",
+      title = "Posterior distributions of heterogeneity (cv)",
+      subtitle = "Increasing post-NPI information (+ generation intervals)"
+    ) +
+    ggplot2::theme(
+      legend.position = "none",
+      strip.text = ggplot2::element_text(face = "bold")
+    )
+}
