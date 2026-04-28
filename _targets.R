@@ -6,7 +6,7 @@ tar_option_set(
   packages = c(
     "deSolve", "data.table", "dplyr", "tidyr", "ggplot2", "patchwork", "posterior",
     "cmdstanr", "stantargets", "purrr", "tibble", "ggh4x", "ggridges", "scales",
-    "viridisLite", "latex2exp"
+    "viridisLite", "latex2exp", "scico"
   ),
   format = "rds"
 )
@@ -661,6 +661,223 @@ list(
       plot = fig_3,
       path = file.path(manuscript_figures_dir, "Fig_3_HIT_differences.pdf"),
       width = 12,
+      height = 9
+    ),
+    format = "file"
+  ),
+  
+  #### NPI policy simulations using posterior median fitted parameters ####
+  
+  tar_target(
+    npi_complete_theta,
+    4
+  ),
+  
+  tar_target(
+    npi_t_max,
+    230
+  ),
+  
+  tar_target(
+    npi_population_size,
+    1e6
+  ),
+  
+  tar_target(
+    npi_i0_prop,
+    1 / npi_population_size
+  ),
+  
+  tar_target(
+    VOI_HS_medians,
+    get_voi_hs_parameter_medians(
+      loaded_objects = VOI_hs_loaded_objects,
+      theta = npi_complete_theta
+    )
+  ),
+  
+  tar_target(
+    VOI_homog_medians,
+    get_voi_homog_parameter_medians(
+      loaded_objects = VOI_homog_loaded_objects,
+      theta = npi_complete_theta
+    )
+  ),
+  
+  tar_target(
+    npi_eff_seq,
+    seq(0, 0.9, by = 0.05)
+  ),
+  
+  tar_target(
+    npi_start_seq,
+    seq(0, 50, by = 5)
+  ),
+  
+  tar_target(
+    npi_dur_seq,
+    seq(30, 180, by = 30)
+  ),
+  
+  tar_target(
+    npi_policy_grid,
+    make_npi_policy_grid(
+      eff_seq = npi_eff_seq,
+      start_seq = npi_start_seq,
+      dur_seq = npi_dur_seq
+    )
+  ),
+  
+  tar_target(
+    npi_results_HS,
+    simulate_npi_policy_grid(
+      policy_grid = npi_policy_grid,
+      model = "HS",
+      medians = VOI_HS_medians,
+      t_max = npi_t_max,
+      population_size = npi_population_size,
+      i0_prop = npi_i0_prop
+    )
+  ),
+  
+  tar_target(
+    npi_results_homog,
+    simulate_npi_policy_grid(
+      policy_grid = npi_policy_grid,
+      model = "homog",
+      medians = VOI_homog_medians,
+      t_max = npi_t_max,
+      population_size = npi_population_size,
+      i0_prop = npi_i0_prop
+    )
+  ),
+  
+  tar_target(
+    npi_results_all,
+    dplyr::bind_rows(npi_results_HS, npi_results_homog)
+  ),
+  
+  tar_target(
+    npi_results_wide,
+    make_npi_results_wide(npi_results_all)
+  ),
+  
+  tar_target(
+    npi_attack_midpoint,
+    calculate_npi_attack_midpoint(npi_results_wide)
+  ),
+  
+  tar_target(
+    hm_attack,
+    plot_npi_heatmap(
+      df = npi_results_wide,
+      z = "attack_rate_diff",
+      title = "Delta Final Attack Rate (Homog median - HS median)",
+      fill_lab = "Delta Attack Rate",
+      midpoint = npi_attack_midpoint,
+      label_fun = scales::percent_format(accuracy = 1)
+    )
+  ),
+  
+  tar_target(
+    hm_peak_inc,
+    plot_npi_heatmap(
+      df = npi_results_wide,
+      z = "peak_incidence_diff",
+      title = "Delta Peak Incidence (Homog median - HS median)",
+      fill_lab = "Delta Peak incidence",
+      midpoint = 0,
+      label_fun = scales::label_number(big.mark = ",", accuracy = 1)
+    )
+  ),
+  
+  tar_target(
+    hm_propS,
+    plot_npi_heatmap(
+      df = npi_results_wide,
+      z = "prop_S_end_diff",
+      title = "Delta Prop Susceptible at NPI end (Homog median - HS median)",
+      fill_lab = "Delta Prop S",
+      midpoint = 0,
+      label_fun = scales::percent_format(accuracy = 1)
+    )
+  ),
+  
+  tar_target(
+    hm_attack_pdf,
+    save_ggplot_pdf(
+      plot = hm_attack,
+      path = file.path(
+        manuscript_figures_dir,
+        "Fig_4_a_attack_rate_heat_map.pdf"
+      ),
+      width = 9,
+      height = 6
+    ),
+    format = "file"
+  ),
+  
+  tar_target(
+    hm_peak_inc_pdf,
+    save_ggplot_pdf(
+      plot = hm_peak_inc,
+      path = file.path(
+        manuscript_figures_dir,
+        "Fig_4_b_peak_incidence_heat_map.pdf"
+      ),
+      width = 9,
+      height = 6
+    ),
+    format = "file"
+  ),
+  
+  tar_target(
+    hm_propS_pdf,
+    save_ggplot_pdf(
+      plot = hm_propS,
+      path = file.path(
+        manuscript_figures_dir,
+        "Fig_4_c_prop_susceptible_heat_map.pdf"
+      ),
+      width = 9,
+      height = 6
+    ),
+    format = "file"
+  ),
+  
+  tar_target(
+    npi_tradeoff_start_keep,
+    c(5, 10, 15, 20)
+  ),
+  
+  tar_target(
+    npi_tradeoff_dur_keep,
+    c(30, 60, 90)
+  ),
+  
+  tar_target(
+    npi_tradeoff_grid_df,
+    make_npi_tradeoff_grid_df(
+      results_all = npi_results_all,
+      start_keep = npi_tradeoff_start_keep,
+      dur_keep = npi_tradeoff_dur_keep
+    )
+  ),
+  
+  tar_target(
+    p_tradeoff_grid,
+    plot_npi_tradeoff_grid(npi_tradeoff_grid_df)
+  ),
+  
+  tar_target(
+    p_tradeoff_grid_pdf,
+    save_ggplot_pdf(
+      plot = p_tradeoff_grid,
+      path = file.path(
+        manuscript_figures_dir,
+        "Fig_4_comparison_attack_vs_susceptible.pdf"
+      ),
+      width = 9,
       height = 9
     ),
     format = "file"

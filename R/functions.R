@@ -1140,3 +1140,416 @@ save_ggplot_pdf_plain <- function(plot, path, width, height) {
   
   path
 }
+
+#### Fig. 4: NPI policy simulations ####
+
+get_voi_hs_parameter_medians <- function(loaded_objects, theta = 4) {
+  beta_name <- paste0("VOI_Theta_", theta, "_beta_draws")
+  gamma_name <- paste0("VOI_Theta_", theta, "_gamma_draws")
+  cv_name <- paste0("VOI_Theta_", theta, "_cv_draws")
+  
+  required <- c(beta_name, gamma_name, cv_name)
+  missing <- setdiff(required, names(loaded_objects))
+  
+  if (length(missing) > 0) {
+    stop(
+      "Missing HS posterior draw objects: ",
+      paste(missing, collapse = ", ")
+    )
+  }
+  
+  tibble::tibble(
+    beta = stats::median(as.vector(loaded_objects[[beta_name]]), na.rm = TRUE),
+    gamma = stats::median(as.vector(loaded_objects[[gamma_name]]), na.rm = TRUE),
+    cv = stats::median(as.vector(loaded_objects[[cv_name]]), na.rm = TRUE)
+  )
+}
+
+get_voi_homog_parameter_medians <- function(loaded_objects, theta = 4) {
+  beta_name <- paste0("Theta_", theta, "_homog_beta_draws")
+  gamma_name <- paste0("Theta_", theta, "_homog_gamma_draws")
+  
+  required <- c(beta_name, gamma_name)
+  missing <- setdiff(required, names(loaded_objects))
+  
+  if (length(missing) > 0) {
+    stop(
+      "Missing homogeneous posterior draw objects: ",
+      paste(missing, collapse = ", ")
+    )
+  }
+  
+  tibble::tibble(
+    beta = stats::median(as.vector(loaded_objects[[beta_name]]), na.rm = TRUE),
+    gamma = stats::median(as.vector(loaded_objects[[gamma_name]]), na.rm = TRUE)
+  )
+}
+
+HS_NPI <- function(t, state, params) {
+  with(as.list(c(state, params)), {
+    if (t >= NPI_start && t <= (NPI_start + NPI_dur)) {
+      beta0 <- (1 - eff) * beta
+    } else {
+      beta0 <- beta
+    }
+    
+    dS <- -beta0 * S^(1 + cv^2) * I
+    dI <- beta0 * S^(1 + cv^2) * I - gamma * I
+    dR <- gamma * I
+    dC <- beta0 * S^(1 + cv^2) * I
+    
+    list(c(dS, dI, dR, dC))
+  })
+}
+
+homog_NPI <- function(t, state, params) {
+  with(as.list(c(state, params)), {
+    if (t >= NPI_start && t <= (NPI_start + NPI_dur)) {
+      beta0 <- (1 - eff) * beta
+    } else {
+      beta0 <- beta
+    }
+    
+    dS <- -beta0 * S * I
+    dI <- beta0 * S * I - gamma * I
+    dR <- gamma * I
+    dC <- beta0 * S * I
+    
+    list(c(dS, dI, dR, dC))
+  })
+}
+
+make_npi_policy_grid <- function(eff_seq, start_seq, dur_seq) {
+  expand.grid(
+    eff = eff_seq,
+    NPI_start = start_seq,
+    NPI_dur = dur_seq,
+    KEEP.OUT.ATTRS = FALSE,
+    stringsAsFactors = FALSE
+  ) |>
+    tibble::as_tibble()
+}
+
+simulate_policy_metrics <- function(
+    model = c("HS", "homog"),
+    eff,
+    NPI_start,
+    NPI_dur,
+    beta,
+    gamma,
+    cv = NULL,
+    t_max = 230,
+    population_size = 1e6,
+    i0_prop = 1 / population_size
+) {
+  model <- match.arg(model)
+  
+  y0 <- c(
+    S = 1 - i0_prop,
+    I = i0_prop,
+    R = 0,
+    C = 0
+  )
+  
+  times <- seq(1, t_max)
+  
+  parms <- c(
+    beta = beta,
+    gamma = gamma,
+    eff = eff,
+    NPI_start = NPI_start,
+    NPI_dur = NPI_dur
+  )
+  
+  if (model == "HS") {
+    if (is.null(cv)) {
+      stop("cv must be supplied when model = 'HS'.")
+    }
+    
+    parms <- c(parms, cv = cv)
+    ode_fun <- HS_NPI
+  } else {
+    ode_fun <- homog_NPI
+  }
+  
+  traj <- deSolve::ode(
+    y = y0,
+    times = times,
+    func = ode_fun,
+    parms = parms,
+    method = "lsoda"
+  ) |>
+    as.data.frame()
+  
+  I_count <- traj$I * population_size
+  peak_prev <- max(I_count, na.rm = TRUE)
+  time_to_peak <- traj$time[which.max(I_count)]
+  
+  inc <- pmax(0, diff(traj$C) * population_size)
+  peak_incidence <- max(inc, na.rm = TRUE)
+  
+  attack_rate <- traj$C[traj$time == t_max][1]
+  
+  end_day <- NPI_start + NPI_dur
+  prop_S_end <- if (end_day <= t_max) {
+    traj$S[traj$time == end_day][1]
+  } else {
+    NA_real_
+  }
+  
+  tibble::tibble(
+    eff = eff,
+    NPI_start = NPI_start,
+    NPI_dur = NPI_dur,
+    attack_rate = attack_rate,
+    time_to_peak = time_to_peak,
+    prop_S_end = prop_S_end,
+    peak_prev = peak_prev,
+    peak_incidence = peak_incidence
+  )
+}
+
+simulate_npi_policy_grid <- function(
+    policy_grid,
+    model = c("HS", "homog"),
+    medians,
+    t_max = 230,
+    population_size = 1e6,
+    i0_prop = 1 / population_size
+) {
+  model <- match.arg(model)
+  
+  beta <- medians$beta[[1]]
+  gamma <- medians$gamma[[1]]
+  cv <- if ("cv" %in% names(medians)) medians$cv[[1]] else NULL
+  
+  purrr::pmap_dfr(
+    policy_grid,
+    function(eff, NPI_start, NPI_dur) {
+      simulate_policy_metrics(
+        model = model,
+        eff = eff,
+        NPI_start = NPI_start,
+        NPI_dur = NPI_dur,
+        beta = beta,
+        gamma = gamma,
+        cv = cv,
+        t_max = t_max,
+        population_size = population_size,
+        i0_prop = i0_prop
+      ) |>
+        dplyr::mutate(model = model)
+    }
+  )
+}
+
+make_npi_results_wide <- function(results_all) {
+  results_all |>
+    tidyr::pivot_wider(
+      id_cols = c(eff, NPI_start, NPI_dur),
+      names_from = model,
+      values_from = c(
+        attack_rate,
+        prop_S_end,
+        peak_incidence,
+        time_to_peak,
+        peak_prev
+      ),
+      names_glue = "{.value}_{model}"
+    ) |>
+    dplyr::mutate(
+      attack_rate_diff = attack_rate_homog - attack_rate_HS,
+      prop_S_end_diff = prop_S_end_homog - prop_S_end_HS,
+      peak_incidence_diff = peak_incidence_homog - peak_incidence_HS,
+      time_to_peak_diff = time_to_peak_homog - time_to_peak_HS,
+      peak_prev_diff = peak_prev_homog - peak_prev_HS
+    )
+}
+
+calculate_npi_attack_midpoint <- function(results_wide) {
+  midpoint <- results_wide |>
+    dplyr::filter(
+      eff == 0,
+      NPI_start == 0,
+      NPI_dur == 30
+    ) |>
+    dplyr::summarise(
+      mid = mean(attack_rate_diff, na.rm = TRUE)
+    ) |>
+    dplyr::pull(mid)
+  
+  if (length(midpoint) == 0 || is.na(midpoint)) {
+    midpoint <- 0
+  }
+  
+  midpoint
+}
+
+theme_npi_heat <- function() {
+  ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(
+      panel.grid = ggplot2::element_blank(),
+      strip.text = ggplot2::element_text(face = "bold"),
+      plot.title = ggplot2::element_text(face = "bold"),
+      legend.title = ggplot2::element_text(face = "bold")
+    )
+}
+
+plot_npi_heatmap <- function(
+    df,
+    z,
+    title,
+    fill_lab,
+    midpoint = 0,
+    label_fun = ggplot2::waiver()
+) {
+  div_cols <- scico::scico(3, palette = "vik")
+  
+  ggplot2::ggplot(
+    df,
+    ggplot2::aes(
+      x = NPI_start,
+      y = eff,
+      fill = .data[[z]]
+    )
+  ) +
+    ggplot2::geom_tile() +
+    ggplot2::facet_wrap(
+      ~ NPI_dur,
+      labeller = ggplot2::label_both
+    ) +
+    ggplot2::scale_fill_gradient2(
+      low = div_cols[1],
+      mid = div_cols[2],
+      high = div_cols[3],
+      midpoint = midpoint,
+      labels = label_fun
+    ) +
+    ggplot2::labs(
+      title = title,
+      x = "NPI Start Day",
+      y = "NPI Effectiveness",
+      fill = fill_lab
+    ) +
+    theme_npi_heat()
+}
+
+make_npi_tradeoff_grid_df <- function(
+    results_all,
+    start_keep = c(5, 10, 15, 20),
+    dur_keep = c(30, 60, 90)
+) {
+  results_all |>
+    dplyr::filter(
+      NPI_start %in% start_keep,
+      NPI_dur %in% dur_keep
+    ) |>
+    dplyr::mutate(
+      model = factor(
+        model,
+        levels = c("homog", "HS"),
+        labels = c("Homogeneous", "Heterogeneous")
+      ),
+      NPI_dur = factor(
+        NPI_dur,
+        levels = dur_keep,
+        labels = c("Duration (days): 30", "60", "90")
+      ),
+      NPI_start = factor(
+        NPI_start,
+        levels = start_keep,
+        labels = c("Start day: 5", "10", "15", "20")
+      )
+    )
+}
+
+plot_npi_tradeoff_grid <- function(df_tradeoff_grid) {
+  ggplot2::ggplot(
+    df_tradeoff_grid,
+    ggplot2::aes(
+      x = prop_S_end,
+      y = attack_rate,
+      color = eff,
+      shape = model
+    )
+  ) +
+    ggplot2::geom_point(size = 2.7, alpha = 0.95) +
+    ggplot2::facet_grid(
+      rows = ggplot2::vars(NPI_start),
+      cols = ggplot2::vars(NPI_dur)
+    ) +
+    ggplot2::scale_color_viridis_c(
+      option = "plasma",
+      end = 0.85,
+      limits = c(0, 1),
+      labels = scales::percent_format(accuracy = 1)
+    ) +
+    ggplot2::scale_shape_manual(
+      values = c(
+        "Homogeneous" = 16,
+        "Heterogeneous" = 17
+      )
+    ) +
+    ggplot2::scale_x_continuous(
+      limits = c(0, 1),
+      breaks = seq(0, 1, by = 0.25),
+      labels = scales::percent_format(accuracy = 1)
+    ) +
+    ggplot2::scale_y_continuous(
+      limits = c(0,1),
+      labels = scales::percent_format(accuracy = 1)
+    ) +
+    ggplot2::labs(
+      x = "Proportion susceptible at NPI end",
+      y = "Final attack rate",
+      color = "NPI effectiveness",
+      shape = "Susceptibility type"
+    ) +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme(
+      strip.placement = "outside",
+      strip.text.x = ggplot2::element_text(face = "bold"),
+      strip.text.y.right = ggplot2::element_text(face = "bold", angle = 270),
+      strip.text.y.left = ggplot2::element_blank(),
+      strip.background.y.left = ggplot2::element_blank(),
+      panel.border = ggplot2::element_rect(
+        color = "grey40",
+        fill = NA,
+        linewidth = 0.6
+      ),
+      panel.spacing = grid::unit(0.6, "lines"),
+      panel.grid.major.y = ggplot2::element_line(
+        color = "grey85",
+        linewidth = 0.4
+      ),
+      panel.grid.major.x = ggplot2::element_line(
+        color = "grey90",
+        linewidth = 0.3
+      ),
+      legend.position = "top",
+      legend.box = "horizontal",
+      legend.direction = "horizontal",
+      legend.title = ggplot2::element_text(face = "bold"),
+      legend.margin = ggplot2::margin(b = 6),
+      legend.spacing.x = grid::unit(14, "pt")
+    ) +
+    ggplot2::guides(
+      color = ggplot2::guide_colorbar(
+        order = 1,
+        direction = "horizontal",
+        title.position = "top",
+        label.position = "bottom",
+        barwidth = grid::unit(3.5, "in"),
+        barheight = grid::unit(0.18, "in")
+      ),
+      shape = ggplot2::guide_legend(
+        order = 2,
+        direction = "horizontal",
+        title.position = "top",
+        label.position = "right",
+        nrow = 1,
+        byrow = TRUE,
+        override.aes = list(size = 3, alpha = 1)
+      )
+    )
+}
