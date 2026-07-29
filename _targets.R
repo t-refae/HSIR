@@ -6,7 +6,7 @@ tar_option_set(
   packages = c(
     "deSolve", "data.table", "dplyr", "tidyr", "ggplot2", "patchwork", "posterior",
     "cmdstanr", "stantargets", "purrr", "tibble", "ggh4x", "ggridges", "scales",
-    "viridisLite", "latex2exp", "scico"
+    "viridisLite", "latex2exp", "scico", "ggridges"
   ),
   format = "rds"
 )
@@ -73,12 +73,12 @@ list(
   ## Fig. 1 trajectory panels
   tar_target(
     fig_1_a,
-    plot_trajectories_faceted(combined_long)
+    plot_trajectory_panel(combined_long, "Cumulative Incidence", "Cumulative incidence")
   ),
   
   tar_target(
     fig_1_b,
-    plot_absolute_differences(delta_df)
+    plot_trajectory_panel(combined_long, "Prevalence", "Prevalence")
   ),
   
 
@@ -207,13 +207,9 @@ list(
     plot_fit_1,
     plot_fit_to_data(
       incidence_summary = incidence_summary_1,
-      observed_cases = data.frame(Day = shared_tps[-1],
-                                  Data=homog_cases_stan),
-      ribbon_fill = "#ff7f0e",
-      line_color = "#ff7f0e",
-      point_color = "#1f77b4",
-      line_label = "Heterogeneous Model Fit",
-      point_label = "Data (Homogeneous Model)"
+      observed_cases    = data.frame(Day = shared_tps[-1], Data = homog_cases_stan),
+      fit_label  = "Heterogeneous",
+      data_label = "Homogeneous"
     )
   ),
 
@@ -248,13 +244,9 @@ list(
     plot_fit_2,
     plot_fit_to_data(
       incidence_summary = incidence_summary_2,
-      observed_cases = data.frame(Day = shared_tps[-1],
-                                  Data=HS_cases_stan),
-      ribbon_fill = "#1f77b4",
-      line_color = "#1f77b4",
-      point_color = "#ff7f0e",
-      line_label = "Homogeneous Model Fit",
-      point_label = "Data (Heterogeneous Model)"
+      observed_cases    = data.frame(Day = shared_tps[-1], Data = HS_cases_stan),
+      fit_label  = "Homogeneous",
+      data_label = "Heterogeneous"
     )
   ),
 
@@ -283,8 +275,8 @@ list(
     save_ggplot_pdf(
       plot = fig_1_panel,
       path = file.path(manuscript_figures_dir, "Fig_1_model_comparisons.pdf"),
-      width = 15,
-      height = 15
+      width = 7,
+      height = 6.5
     ),
     format = "file"
   ),
@@ -301,10 +293,10 @@ list(
     make_dynamic_speed_comp_dt()
   ),
   
-  tar_target(
-    dynamic_speed_comp_model,
-    "HS"
-  ),
+  # tar_target(
+  #   dynamic_speed_comp_model,
+  #   "HS"
+  # ),
   
   tar_target(
     dynamic_speed_comp_LL,
@@ -447,6 +439,8 @@ list(
   ),
   
   #### S/HIT differences and VOI posterior summaries ####
+  
+  
   
   tar_target(
     hit_differences_parent_dir,
@@ -666,6 +660,61 @@ list(
     format = "file"
   ),
   
+  #### Alternative Fig. 3: remaining attack rate (unmitigated remaining burden) ####
+  
+  tar_target(
+    remaining_attack_HS,
+    summarize_remaining_attack_by_model(
+      loaded_objects = VOI_hs_loaded_objects,
+      voi_thetas = VOI_thetas,
+      model_type = "Heterogeneous",
+      object_prefix = "VOI",
+      object_suffix = NULL,
+      t_extend = 5000,
+      thin = NULL    # set to an integer (e.g. 500) to subsample draws for speed
+    )
+  ),
+  
+  tar_target(
+    remaining_attack_Homog,
+    summarize_remaining_attack_by_model(
+      loaded_objects = VOI_homog_loaded_objects,
+      voi_thetas = VOI_thetas,
+      model_type = "Homogeneous",
+      object_prefix = NULL,
+      object_suffix = "homog",
+      t_extend = 5000,
+      thin = NULL
+    )
+  ),
+  
+  tar_target(
+    fig3_remaining_df,
+    make_fig3_remaining_df(
+      remaining_HS = remaining_attack_HS,
+      remaining_Homog = remaining_attack_Homog
+    )
+  ),
+  
+  tar_target(
+    fig_3_remaining,
+    plot_fig3_remaining_attack(
+      fig3_df = fig3_remaining_df,
+      theta_labels_named = theta_labels_named_fig3
+    )
+  ),
+  
+  tar_target(
+    fig_3_remaining_pdf,
+    save_ggplot_pdf(
+      plot = fig_3_remaining,
+      path = file.path(manuscript_figures_dir, "Fig_3_alt_remaining_attack_rate.pdf"),
+      width = 12,
+      height = 9
+    ),
+    format = "file"
+  ),
+  
   #### NPI policy simulations using posterior median fitted parameters ####
   
   tar_target(
@@ -675,7 +724,7 @@ list(
   
   tar_target(
     npi_t_max,
-    230
+    1080
   ),
   
   tar_target(
@@ -847,7 +896,7 @@ list(
   
   tar_target(
     npi_tradeoff_start_keep,
-    c(5, 10, 15, 20)
+    c(5, 10, 15)
   ),
   
   tar_target(
@@ -879,6 +928,118 @@ list(
       ),
       width = 9,
       height = 9
+    ),
+    format = "file"
+  ),
+  
+  
+  #### Alternative Fig. 4: continuous delta in remaining attack rate ####
+  
+  tar_target(
+    npi_remaining_eff_seq,
+    c(0.3, 0.5, 0.8)
+  ),
+  
+  tar_target(
+    npi_remaining_policy_grid,
+    make_npi_policy_grid(
+      eff_seq = npi_remaining_eff_seq,
+      start_seq = npi_tradeoff_start_keep,
+      dur_seq = npi_tradeoff_dur_keep
+    )
+  ),
+  
+  tar_target(
+    npi_remaining_grid,
+    simulate_npi_remaining_grid(
+      policy_grid = npi_remaining_policy_grid,
+      medians_HS = VOI_HS_medians,
+      medians_homog = VOI_homog_medians,
+      t_max = npi_t_max,
+      population_size = npi_population_size,
+      i0_prop = npi_i0_prop
+    )
+  ),
+  
+  tar_target(
+    fig_4_remaining_by_model,
+    plot_npi_remaining_by_model_grid(
+      remaining_grid = npi_remaining_grid,
+      start_keep = npi_tradeoff_start_keep,
+      dur_keep = npi_tradeoff_dur_keep,
+      eff_keep = npi_remaining_eff_seq,
+      x_max_display = 200
+    )
+  ),
+  
+  tar_target(
+    fig_4_remaining_by_model_pdf,
+    save_ggplot_pdf(
+      plot = fig_4_remaining_by_model,
+      path = file.path(manuscript_figures_dir, "Fig_4_alt_remaining_attack_by_model.pdf"),
+      width = 11,
+      height = 9
+    ),
+    format = "file"
+  ),
+  
+  #### NPI efficiency: marginal value of an extra NPI day ####
+  
+  tar_target(
+    npi_mv_eff_seq,
+    c(0.3, 0.5, 0.8)
+  ),
+  
+  tar_target(
+    npi_mv_dur_seq,
+    seq(0, 150, by = 2)   # fine duration grid; use by = 1 for exact per-day
+  ),
+  
+  tar_target(
+    npi_mv_policy_grid,
+    make_npi_policy_grid(
+      eff_seq = npi_mv_eff_seq,
+      start_seq = npi_tradeoff_start_keep,
+      dur_seq = npi_mv_dur_seq
+    )
+  ),
+  
+  tar_target(
+    npi_mv_attack_curve,
+    simulate_npi_attack_curve(
+      policy_grid = npi_mv_policy_grid,
+      medians_HS = VOI_HS_medians,
+      medians_homog = VOI_homog_medians,
+      t_max = npi_t_max,
+      population_size = npi_population_size,
+      i0_prop = npi_i0_prop
+    )
+  ),
+  
+  tar_target(
+    npi_mv_df,
+    make_npi_marginal_value_df(
+      attack_curve = npi_mv_attack_curve,
+      population_size = npi_population_size
+    )
+  ),
+  
+  tar_target(
+    fig_npi_marginal_value,
+    plot_npi_marginal_value(
+      marginal_df = npi_mv_df,
+      start_keep = npi_tradeoff_start_keep,
+      dur_max_display = 150
+    )
+  ),
+  
+  tar_target(
+    fig_npi_marginal_value_pdf,
+    save_ggplot_pdf(
+      plot = fig_npi_marginal_value,
+      path = file.path(manuscript_figures_dir, "Fig_NPI_marginal_value_per_day.pdf"),
+      width = 11,
+      height = 8
     ),
     format = "file"
   ),
@@ -924,7 +1085,35 @@ list(
       height = 9
     ),
     format = "file"
-  )
+  ),
 
+  #### Supplementary: full time series fits for selected parameter combinations ####
+  tar_target(
+    FTS_fit_files, list.files("../HSIR_fitting/outputs/FTS", "\\.rds$", full.names = TRUE),
+    format = "file"
+  ),
+  
+  tar_target(FTS_fit_bundles, lapply(FTS_fit_files, readRDS)),
+  
+  tar_target(FTS_cv_ridge,    param_ridge_plot(FTS_fit_bundles, FTS_fit_files, "cv")),
+  tar_target(FTS_beta_ridge,  param_ridge_plot(FTS_fit_bundles, FTS_fit_files, "beta")),
+  tar_target(FTS_gamma_ridge, param_ridge_plot(FTS_fit_bundles, FTS_fit_files, "gamma")),
+  
+  tar_target(
+    FTS_ridge_files,
+    {
+      dir.create("outputs", showWarnings = FALSE)
+      out <- c(
+        cv    = file.path("outputs", "FTS_cv_ridge.png"),
+        beta  = file.path("outputs", "FTS_beta_ridge.png"),
+        gamma = file.path("outputs", "FTS_gamma_ridge.png")
+      )
+      ggplot2::ggsave(out[["cv"]],    FTS_cv_ridge,    width = 7, height = 8, dpi = 300)
+      ggplot2::ggsave(out[["beta"]],  FTS_beta_ridge,  width = 7, height = 8, dpi = 300)
+      ggplot2::ggsave(out[["gamma"]], FTS_gamma_ridge, width = 7, height = 8, dpi = 300)
+      unname(out)
+    },
+    format = "file"
+  )
   
 )

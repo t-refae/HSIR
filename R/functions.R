@@ -94,13 +94,6 @@ make_delta_df <- function(homog_out, HS_out) {
     )
 }
 
-make_cases_from_cumulative <- function(out, times, population_size) {
-  data.frame(
-    Day = times,
-    Data = c(1, round(diff(out$C) * population_size))
-  )
-}
-
 make_stan_cases_from_cumulative <- function(out, population_size) {
   round(diff(out$C) * population_size)
 }
@@ -466,125 +459,93 @@ plot_dynamic_speed_cv_ridges_by_window <- function(cv_ridge_df) {
 
 #### plotting ####
 
-plot_trajectories_faceted <- function(combined_long) {
-  ggplot2::ggplot(
-    combined_long,
-    ggplot2::aes(x = time, y = Value, color = susceptibility)
-  ) +
-    ggplot2::geom_line(linewidth = 1.3) +
-    ggplot2::facet_wrap(~Compartment, scales = "free_y") +
-    ggplot2::scale_color_manual(
-      values = c(
-        "Homogeneous" = "#1f77b4",
-        "Heterogeneous" = "#ff7f0e"
-      )
-    ) +
-    ggplot2::labs(
-      x = "Time (Days)",
-      y = "Proportion",
-      color = "Susceptibility"
-    ) +
-    ggplot2::theme_minimal(base_size = 14) +
+susceptibility_palette <- c(
+  "Homogeneous"   = "#1f77b4",
+  "Heterogeneous" = "#ff7f0e"
+)
+
+theme_fig1 <- function(base_size = 11) {
+  ggplot2::theme_minimal(base_size = base_size) +
     ggplot2::theme(
-      legend.position = "top",
-      plot.title = ggplot2::element_blank(),
-      legend.background = ggplot2::element_blank(),
-      legend.box.background = ggplot2::element_rect(color = "black")
+      legend.position  = "bottom",
+      legend.box       = "horizontal",
+      legend.title     = ggplot2::element_text(face = "bold"),
+      plot.title       = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank(),
+      plot.margin      = ggplot2::margin(t = 8, r = 8, b = 2, l = 6)
     )
 }
 
-plot_absolute_differences <- function(delta_df) {
+plot_trajectory_panel <- function(combined_long, compartment, y_label,
+                                  palette = susceptibility_palette) {
   ggplot2::ggplot(
-    delta_df,
-    ggplot2::aes(
-      x = time,
-      y = Absolute_Difference,
-      linetype = Metric
-    )
+    dplyr::filter(combined_long, Compartment == compartment),
+    ggplot2::aes(x = time, y = Value, colour = susceptibility)
   ) +
-    ggplot2::geom_line(linewidth = 1.3) +
-    ggplot2::scale_linetype_manual(
-      values = c(
-        delta_infected = "solid",
-        delta_cumulative_incidence = "dotted"
-      ),
-      labels = c(
-        delta_infected = "Prevalence",
-        delta_cumulative_incidence = "Cumulative Incidence"
-      )
+    ggplot2::geom_line(linewidth = 1) +
+    ggplot2::scale_colour_manual(
+      values = palette,
+      limits = names(palette),
+      name   = "Susceptibility"
     ) +
-    ggplot2::labs(
-      title = expression(paste("|", Homogeneous - Heterogeneous, "|")),
-      x = "Time (Days)",
-      y = "Absolute Difference",
-      linetype = "Metric"
-    ) +
-    ggplot2::theme_minimal(base_size = 14) +
-    ggplot2::theme(
-      legend.position = c(0.1, 0.98),
-      legend.justification = c(0, 1),
-      legend.background = ggplot2::element_rect(
-        fill = "white",
-        color = "black"
-      ),
-      plot.title = ggplot2::element_text(
-        face = "bold",
-        hjust = 0.5
-      ),
-      legend.box.margin = ggplot2::margin(6, 6, 6, 6)
-    )
+    ggplot2::guides(colour = ggplot2::guide_legend(order = 1)) +
+    ggplot2::labs(x = "Time (Days)", y = y_label) +
+    theme_fig1()
 }
 
-plot_fit_to_data <- function(
-    incidence_summary,
-    observed_cases,
-    ribbon_fill,
-    line_color,
-    point_color,
-    line_label,
-    point_label
-) {
+plot_fit_to_data <- function(incidence_summary, observed_cases,
+                             fit_label, data_label,
+                             palette = susceptibility_palette) {
+  glyph_levels <- c("data", "model fit")
+  
   ggplot2::ggplot() +
     ggplot2::geom_ribbon(
       data = incidence_summary,
-      ggplot2::aes(x = Day, ymin = Lower, ymax = Upper),
-      fill = ribbon_fill,
-      alpha = 0.3
+      ggplot2::aes(x = Day, ymin = Lower, ymax = Upper, fill = fit_label),
+      alpha = 0.25
     ) +
     ggplot2::geom_line(
       data = incidence_summary,
-      ggplot2::aes(
-        x = Day,
-        y = Median,
-        linetype = line_label
-      ),
-      linewidth = 1.3,
-      color = line_color
+      ggplot2::aes(x = Day, y = Median, colour = fit_label, linetype = "model fit"),
+      linewidth = 1
     ) +
     ggplot2::geom_point(
       data = observed_cases,
-      ggplot2::aes(
-        x = Day,
-        y = Data,
-        shape = point_label
+      ggplot2::aes(x = Day, y = Data, colour = data_label, shape = "data"),
+      size = 2
+    ) +
+    ggplot2::scale_colour_manual(
+      values = palette,
+      limits = names(palette),
+      guide  = "none"
+    ) +
+    ggplot2::scale_fill_manual(
+      values = palette,
+      limits = names(palette),
+      guide  = "none"
+    ) +
+    ggplot2::scale_shape_manual(
+      name   = "Data type",
+      values = c("data" = 16, "model fit" = NA),
+      limits = glyph_levels
+    ) +
+    ggplot2::scale_linetype_manual(
+      name   = "Data type",
+      values = c("data" = "blank", "model fit" = "solid"),
+      limits = glyph_levels
+    ) +
+    ggplot2::guides(
+      shape    = ggplot2::guide_legend(
+        order = 2,
+        override.aes = list(colour = "black")
       ),
-      size = 3,
-      color = point_color
+      linetype = ggplot2::guide_legend(
+        order = 2,
+        override.aes = list(colour = "black")
+      )
     ) +
-    ggplot2::scale_shape_manual(values = setNames(1, point_label)) +
-    ggplot2::scale_linetype_manual(values = setNames("solid", line_label)) +
-    ggplot2::labs(
-      x = "Time (Days)",
-      y = "Incidence",
-      shape = "",
-      linetype = ""
-    ) +
-    ggplot2::theme_minimal(base_size = 14) +
-    ggplot2::theme(
-      legend.position = "top",
-      legend.box.background = ggplot2::element_rect(color = "black"),
-      legend.background = ggplot2::element_blank()
-    )
+    ggplot2::labs(x = "Time (Days)", y = "Incidence") +
+    theme_fig1()
 }
 
 assemble_fig_1_panel <- function(fig_1_a, fig_1_b, plot_fit_1, plot_fit_2) {
@@ -592,19 +553,17 @@ assemble_fig_1_panel <- function(fig_1_a, fig_1_b, plot_fit_1, plot_fit_2) {
     (fig_1_a + fig_1_b) /
       (plot_fit_1 + plot_fit_2)
   ) +
-    patchwork::plot_layout(guides = "keep") +
+    patchwork::plot_layout(guides = "collect") +
     patchwork::plot_annotation(
       tag_levels = "a",
       tag_prefix = "(",
-      tag_suffix = ")",
-      theme = ggplot2::theme(
-        plot.title = ggplot2::element_text(
-          hjust = 0.5,
-          face = "bold"
-        )
-      )
+      tag_suffix = ")"
     ) &
-    ggplot2::theme(legend.position = "top")
+    ggplot2::theme(
+      legend.position = "bottom",
+      legend.box      = "horizontal",
+      plot.tag        = ggplot2::element_text(face = "bold")
+    )
 }
 
 save_ggplot_pdf <- function(plot, path, width, height, dpi = 300) {
@@ -1686,5 +1645,477 @@ plot_npi_informing_cv_posteriors <- function(cv_draws_df) {
     ggplot2::theme(
       legend.position = "none",
       strip.text = ggplot2::element_text(face = "bold")
+    )
+}
+
+#### Supplementary: full time series fits ####
+param_ridge_data <- function(bundles, files, param) {
+  ids <- regmatches(basename(files), regexpr("id[0-9]+", basename(files)))
+  dplyr::bind_rows(Map(function(b, id) {
+    stopifnot(param %in% colnames(b$draws))
+    data.frame(id = id, value = as.numeric(b$draws[[param]]))
+  }, bundles, ids))
+}
+
+param_ridge_plot <- function(bundles, files, param) {
+  d  <- param_ridge_data(bundles, files, param)
+  lv <- unique(d$id)
+  lv <- lv[order(as.integer(sub("id", "", lv)), decreasing = TRUE)]
+  d$id <- factor(d$id, levels = lv)
+  ggplot2::ggplot(d, ggplot2::aes(x = value, y = id, fill = id)) +
+    ggridges::geom_density_ridges(
+      scale = 1.1, alpha = 0.8, colour = "grey30", rel_min_height = 0.01
+    ) +
+    ggplot2::scale_fill_viridis_d(guide = "none") +
+    ggplot2::labs(x = param, y = NULL) +
+    ggplot2::theme_minimal(base_size = 11)
+}
+
+#### Alternative Fig. 3: remaining attack rate (unmitigated remaining burden) ####
+
+.voi_object_name <- function(prefix, theta_val, suffix, leaf) {
+  parts <- c(prefix, paste0("Theta_", theta_val), suffix, leaf)
+  parts <- parts[!is.null(parts) & !is.na(parts)]
+  paste(parts, collapse = "_")
+}
+
+extract_state_draws_matrix <- function(y_draws, state_index) {
+  var_names <- dimnames(y_draws)[[3]]
+  if (is.null(var_names)) {
+    stop("y_draws must have variable names in dimnames(y_draws)[[3]].")
+  }
+  pattern <- paste0("^y\\[([0-9]+),", state_index, "\\]$")
+  vars <- grep(pattern, var_names, value = TRUE)
+  if (length(vars) == 0) {
+    stop("No y_draws variables found for state index ", state_index)
+  }
+  time_indices <- as.integer(sub("y\\[([0-9]+),[0-9]+\\]", "\\1", vars))
+  vars <- vars[order(time_indices)]
+  vapply(
+    vars,
+    function(v) as.vector(y_draws[, , v]),
+    numeric(prod(dim(y_draws)[1:2])),
+    USE.NAMES = FALSE
+  )
+}
+
+final_size_from_state <- function(
+    S_end, I_end, R_end, beta, gamma, cv = NULL,
+    model = c("heterogeneous", "homogeneous"),
+    t_extend = 5000, i_tol = 1e-9
+) {
+  model <- match.arg(model)
+  if (is.na(I_end) || I_end <= i_tol) return(unname(S_end))
+  
+  parms <- c(beta = beta, gamma = gamma)
+  if (model == "heterogeneous") {
+    if (is.null(cv) || is.na(cv)) stop("cv required for heterogeneous final size.")
+    parms <- c(parms, cv = cv)
+    ode_fun <- HS_SIR
+  } else {
+    ode_fun <- homog_SIR
+  }
+  
+  y0 <- c(S = unname(S_end), I = unname(I_end), R = unname(R_end), C = 0)
+  out <- deSolve::ode(
+    y = y0, times = c(0, t_extend),
+    func = ode_fun, parms = parms, method = "lsoda"
+  )
+  unname(out[nrow(out), "S"])
+}
+
+summarize_remaining_attack_by_model <- function(
+    loaded_objects,
+    voi_thetas = 1:4,
+    model_type,
+    object_prefix = NULL,
+    object_suffix = NULL,
+    probs = c(0.05, 0.95),
+    t_extend = 5000,
+    thin = NULL,
+    seed = 2,
+    denom_floor = 1e-4
+) {
+  model <- if (model_type == "Heterogeneous") "heterogeneous" else "homogeneous"
+  
+  purrr::map_dfr(voi_thetas, function(theta_val) {
+    y_name     <- .voi_object_name(object_prefix, theta_val, object_suffix, "y_draws")
+    beta_name  <- .voi_object_name(object_prefix, theta_val, object_suffix, "beta_draws")
+    gamma_name <- .voi_object_name(object_prefix, theta_val, object_suffix, "gamma_draws")
+    cv_name    <- .voi_object_name(object_prefix, theta_val, object_suffix, "cv_draws")
+    
+    needed <- c(y_name, beta_name, gamma_name, if (model == "heterogeneous") cv_name)
+    missing <- setdiff(needed, names(loaded_objects))
+    if (length(missing) > 0) stop("Missing object(s): ", paste(missing, collapse = ", "))
+    
+    S_mat <- extract_state_draws_matrix(loaded_objects[[y_name]], 1)
+    I_mat <- extract_state_draws_matrix(loaded_objects[[y_name]], 2)
+    R_mat <- extract_state_draws_matrix(loaded_objects[[y_name]], 3)
+    n_draws <- nrow(S_mat); n_time <- ncol(S_mat)
+    
+    beta_v  <- as.vector(loaded_objects[[beta_name]])
+    gamma_v <- as.vector(loaded_objects[[gamma_name]])
+    cv_v <- if (model == "heterogeneous") {
+      as.vector(loaded_objects[[cv_name]])
+    } else {
+      rep(NA_real_, n_draws)
+    }
+    if (length(beta_v) != n_draws || length(gamma_v) != n_draws) {
+      stop("Parameter draws not aligned with trajectory draws for Theta_", theta_val)
+    }
+    
+    idx <- seq_len(n_draws)
+    if (!is.null(thin) && thin < n_draws) {
+      set.seed(seed); idx <- sort(sample.int(n_draws, thin))
+    }
+    
+    # per-draw final size: forward-simulate THIS window's own draw to completion
+    S_inf <- vapply(idx, function(k) {
+      final_size_from_state(
+        S_end = S_mat[k, n_time], I_end = I_mat[k, n_time], R_end = R_mat[k, n_time],
+        beta = beta_v[k], gamma = gamma_v[k],
+        cv = if (model == "heterogeneous") cv_v[k] else NULL,
+        model = model, t_extend = t_extend
+      )
+    }, numeric(1))
+    
+    S_sub <- S_mat[idx, , drop = FALSE]          # [n_sub x n_time]
+    denom <- S_sub[, 1] - S_inf                  # per-draw eventual total epidemic size
+    denom[denom <= denom_floor] <- NA_real_      # drop draws with negligible inferred epidemics
+    
+    # relative remaining, per draw: (S(t) - Sinf) / (S(t0) - Sinf); = 1 at t0
+    rel_mat <- (S_sub - S_inf) / denom           # S_inf, denom recycle down rows (per draw)
+    
+    summ <- t(apply(rel_mat, 2, function(col) {
+      c(median = stats::median(col, na.rm = TRUE),
+        lower  = stats::quantile(col, probs[1], na.rm = TRUE, names = FALSE),
+        upper  = stats::quantile(col, probs[2], na.rm = TRUE, names = FALSE))
+    }))
+    
+    tibble::tibble(
+      time = seq_len(n_time),
+      rem_median = summ[, "median"],
+      rem_lower  = summ[, "lower"],
+      rem_upper  = summ[, "upper"],
+      theta = paste0("Theta_", theta_val),
+      model_type = model_type,
+      Theta_num = theta_val
+    )
+  })
+}
+
+make_fig3_remaining_df <- function(remaining_HS, remaining_Homog) {
+  dplyr::bind_rows(remaining_HS, remaining_Homog) |>
+    dplyr::mutate(
+      model_type = factor(
+        model_type,
+        levels = c("Homogeneous", "Heterogeneous")
+      )
+    )
+}
+
+plot_fig3_remaining_attack <- function(fig3_df, theta_labels_named) {
+  fig3_df <- fig3_df |>
+    dplyr::mutate(theta = factor(theta, levels = names(theta_labels_named)))
+  
+  ggplot2::ggplot(
+    fig3_df,
+    ggplot2::aes(x = time, y = rem_median, color = model_type, fill = model_type)
+  ) +
+    ggplot2::geom_line(linewidth = 1.3) +
+    ggplot2::geom_ribbon(
+      ggplot2::aes(ymin = rem_lower, ymax = rem_upper),
+      alpha = 0.3, color = NA
+    ) +
+    # ggplot2::geom_hline(yintercept = 0, color = "black", linetype = "dashed") +
+    ggplot2::facet_wrap(
+      ~ theta, ncol = 2,
+      labeller = ggplot2::as_labeller(theta_labels_named)
+    ) +
+    ggplot2::scale_color_manual(
+      values = c("Homogeneous" = "#1f77b4", "Heterogeneous" = "#ff7f0e")
+    ) +
+    ggplot2::scale_fill_manual(
+      values = c("Homogeneous" = "#1f77b4", "Heterogeneous" = "#ff7f0e")
+    ) +
+    ggplot2::scale_y_continuous(
+      labels = scales::percent_format(accuracy = 1)
+    ) +
+    ggplot2::labs(
+      x = "Time (Days)",
+      y = "Remaining attack rate (unmitigated)",
+      color = "Susceptibility",
+      fill = "Susceptibility"
+    ) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(
+      legend.position = "top",
+      legend.title = ggplot2::element_text(face = "bold"),
+      legend.box.background = ggplot2::element_rect(
+        color = "black", fill = NA, linewidth = 0.6
+      ),
+      legend.background = ggplot2::element_blank(),
+      legend.key.height = grid::unit(0.5, "cm"),
+      axis.title = ggplot2::element_text(size = 12),
+      axis.text = ggplot2::element_text(size = 10),
+      strip.text = ggplot2::element_text(size = 12, face = "bold")
+    )
+}
+
+#### Alternative Fig. 4: continuous delta in remaining attack rate over time ####
+
+simulate_policy_remaining <- function(
+    model = c("HS", "homog"),
+    eff, NPI_start, NPI_dur,
+    beta, gamma, cv = NULL,
+    t_max = 1080,
+    population_size = 1e6,
+    i0_prop = 1 / population_size,
+    denom_floor = 1e-8
+) {
+  model <- match.arg(model)
+  
+  y0 <- c(S = 1 - i0_prop, I = i0_prop, R = 0, C = 0)
+  times <- seq(1, t_max)
+  parms <- c(
+    beta = beta, gamma = gamma, eff = eff,
+    NPI_start = NPI_start, NPI_dur = NPI_dur
+  )
+  
+  if (model == "HS") {
+    if (is.null(cv)) stop("cv must be supplied when model = 'HS'.")
+    parms <- c(parms, cv = cv)
+    ode_fun <- HS_NPI
+  } else {
+    ode_fun <- homog_NPI
+  }
+  
+  traj <- deSolve::ode(
+    y = y0, times = times, func = ode_fun,
+    parms = parms, method = "lsoda"
+  ) |>
+    as.data.frame()
+  
+  S_inf <- traj$S[nrow(traj)]        # final size under THIS policy
+  denom <- traj$S[1] - S_inf         # eventual total epidemic size for this policy
+  if (denom <= denom_floor) denom <- NA_real_
+  
+  tibble::tibble(
+    time = traj$time,
+    remaining = (traj$S - S_inf) / denom,  # relative: 1 at t0, decays to 0
+    eff = eff, NPI_start = NPI_start, NPI_dur = NPI_dur, model = model
+  )
+}
+
+simulate_npi_remaining_grid <- function(
+    policy_grid, medians_HS, medians_homog,
+    t_max = 1080, population_size = 1e6, i0_prop = 1 / population_size
+) {
+  run_one <- function(model, medians) {
+    beta <- medians$beta[[1]]
+    gamma <- medians$gamma[[1]]
+    cv <- if ("cv" %in% names(medians)) medians$cv[[1]] else NULL
+    purrr::pmap_dfr(policy_grid, function(eff, NPI_start, NPI_dur) {
+      simulate_policy_remaining(
+        model = model, eff = eff, NPI_start = NPI_start, NPI_dur = NPI_dur,
+        beta = beta, gamma = gamma, cv = cv,
+        t_max = t_max, population_size = population_size, i0_prop = i0_prop
+      )
+    })
+  }
+  dplyr::bind_rows(
+    run_one("HS", medians_HS),
+    run_one("homog", medians_homog)
+  )
+}
+
+plot_npi_remaining_by_model_grid <- function(
+    remaining_grid,
+    start_keep = c(5, 10, 15, 20),
+    dur_keep = c(30, 60, 90),
+    eff_keep = c(0.25, 0.5, 0.75),
+    x_max_display = 200
+) {
+  df <- remaining_grid |>
+    dplyr::filter(
+      NPI_start %in% start_keep,
+      NPI_dur %in% dur_keep,
+      eff %in% eff_keep
+    ) |>
+    dplyr::mutate(
+      model = factor(
+        model, levels = c("homog", "HS"),
+        labels = c("Homogeneous", "Heterogeneous")
+      ),
+      eff_f = factor(
+        eff, levels = sort(eff_keep),
+        labels = paste0(round(sort(eff_keep) * 100), "%")
+      ),
+      NPI_start_f = factor(NPI_start, levels = start_keep,
+                           labels = paste0("Start: day ", start_keep)),
+      NPI_dur_f = factor(NPI_dur, levels = dur_keep,
+                         labels = paste0("Duration: ", dur_keep, "d"))
+    )
+  
+  windows <- df |>
+    dplyr::distinct(NPI_start, NPI_dur, NPI_start_f, NPI_dur_f) |>
+    dplyr::mutate(xmin = NPI_start, xmax = NPI_start + NPI_dur)
+  
+  ggplot2::ggplot(
+    df,
+    ggplot2::aes(
+      x = time, y = remaining,
+      color = eff_f, linetype = model,
+      group = interaction(eff_f, model)
+    )
+  ) +
+    ggplot2::geom_rect(
+      data = windows,
+      ggplot2::aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+      inherit.aes = FALSE, fill = "grey88"
+    ) +
+    ggplot2::geom_line(linewidth = 0.9) +
+    ggplot2::facet_grid(
+      rows = ggplot2::vars(NPI_start_f),
+      cols = ggplot2::vars(NPI_dur_f)
+    ) +
+    ggplot2::coord_cartesian(xlim = c(0, x_max_display)) +
+    ggplot2::scale_color_viridis_d(option = "plasma", end = 0.85) +
+    ggplot2::scale_linetype_manual(
+      values = c("Homogeneous" = "solid", "Heterogeneous" = "dashed")
+    ) +
+    ggplot2::scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+    ggplot2::labs(
+      x = "Time (days)",
+      y = "Remaining attack rate (relative to eventual total)",
+      color = "NPI effectiveness",
+      linetype = "Susceptibility type"
+    ) +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme(
+      strip.text.x = ggplot2::element_text(face = "bold"),
+      strip.text.y = ggplot2::element_text(face = "bold", angle = 270),
+      panel.border = ggplot2::element_rect(color = "grey40", fill = NA, linewidth = 0.6),
+      panel.spacing = grid::unit(0.6, "lines"),
+      panel.grid.minor = ggplot2::element_blank(),
+      legend.position = "top",
+      legend.title = ggplot2::element_text(face = "bold")
+    ) +
+    ggplot2::guides(
+      color = ggplot2::guide_legend(
+        order = 1, title.position = "top",
+        override.aes = list(linewidth = 1.1)
+      ),
+      linetype = ggplot2::guide_legend(
+        order = 2, title.position = "top",
+        override.aes = list(linewidth = 0.9)
+      )
+    )
+}
+
+#### NPI efficiency: marginal value of extending the NPI by one day ####
+
+simulate_npi_attack_curve <- function(
+    policy_grid, medians_HS, medians_homog,
+    t_max = 1080, population_size = 1e6, i0_prop = 1 / population_size
+) {
+  run_one <- function(model, medians) {
+    beta <- medians$beta[[1]]
+    gamma <- medians$gamma[[1]]
+    cv <- if ("cv" %in% names(medians)) medians$cv[[1]] else NULL
+    purrr::pmap_dfr(policy_grid, function(eff, NPI_start, NPI_dur) {
+      m <- simulate_policy_metrics(
+        model = model, eff = eff, NPI_start = NPI_start, NPI_dur = NPI_dur,
+        beta = beta, gamma = gamma, cv = cv,
+        t_max = t_max, population_size = population_size, i0_prop = i0_prop
+      )
+      tibble::tibble(
+        eff = eff, NPI_start = NPI_start, NPI_dur = NPI_dur,
+        attack_rate = m$attack_rate, model = model
+      )
+    })
+  }
+  dplyr::bind_rows(
+    run_one("HS", medians_HS),
+    run_one("homog", medians_homog)
+  )
+}
+
+make_npi_marginal_value_df <- function(attack_curve, population_size = 1e6) {
+  attack_curve |>
+    dplyr::arrange(model, eff, NPI_start, NPI_dur) |>
+    dplyr::group_by(model, eff, NPI_start) |>
+    dplyr::mutate(
+      d_dur = NPI_dur - dplyr::lag(NPI_dur),
+      # infections averted by the marginal day: -dAR/dD * N
+      marginal_value_per_day =
+        -(attack_rate - dplyr::lag(attack_rate)) / d_dur * population_size
+    ) |>
+    dplyr::ungroup() |>
+    dplyr::filter(!is.na(marginal_value_per_day))
+}
+
+plot_npi_marginal_value <- function(
+    marginal_df,
+    start_keep = c(5, 10, 15, 20),
+    dur_max_display = 150
+) {
+  df <- marginal_df |>
+    dplyr::filter(NPI_start %in% start_keep) |>
+    dplyr::mutate(
+      model = factor(model, levels = c("homog", "HS"),
+                     labels = c("Homogeneous", "Heterogeneous")),
+      NPI_start_f = factor(NPI_start, levels = start_keep,
+                           labels = paste0("Start: day ", start_keep))
+    )
+  
+  ggplot2::ggplot(
+    df,
+    ggplot2::aes(
+      x = NPI_dur, y = marginal_value_per_day,
+      color = eff, linetype = model,
+      group = interaction(eff, model)
+    )
+  ) +
+    ggplot2::geom_hline(
+      yintercept = 0, color = "black", linetype = "dashed", linewidth = 0.4
+    ) +
+    ggplot2::geom_line(linewidth = 0.9) +
+    ggplot2::facet_wrap(~ NPI_start_f) +
+    ggplot2::coord_cartesian(xlim = c(0, dur_max_display)) +
+    ggplot2::scale_color_viridis_c(
+      option = "plasma", end = 0.85, limits = c(0, 1),
+      labels = scales::percent_format(accuracy = 1)
+    ) +
+    ggplot2::scale_linetype_manual(
+      values = c("Homogeneous" = "solid", "Heterogeneous" = "dashed")
+    ) +
+    ggplot2::scale_y_continuous(
+      labels = scales::label_number(big.mark = ",", accuracy = 1)
+    ) +
+    ggplot2::labs(
+      x = "NPI duration (days)",
+      y = "Infections averted per additional NPI day",
+      color = "NPI effectiveness",
+      linetype = "Susceptibility type"
+    ) +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme(
+      strip.text = ggplot2::element_text(face = "bold"),
+      panel.border = ggplot2::element_rect(color = "grey40", fill = NA, linewidth = 0.6),
+      panel.spacing = grid::unit(0.6, "lines"),
+      panel.grid.minor = ggplot2::element_blank(),
+      legend.position = "top",
+      legend.title = ggplot2::element_text(face = "bold")
+    ) +
+    ggplot2::guides(
+      color = ggplot2::guide_colorbar(
+        order = 1, title.position = "top", label.position = "bottom",
+        barwidth = grid::unit(3.5, "in"), barheight = grid::unit(0.18, "in")
+      ),
+      linetype = ggplot2::guide_legend(
+        order = 2, title.position = "top",
+        override.aes = list(linewidth = 0.9)
+      )
     )
 }
