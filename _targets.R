@@ -463,11 +463,11 @@ list(
   tar_target(
     remaining_attack_HS,
     summarize_remaining_attack_by_model(
-      loaded_objects = VOI_hs_loaded_objects,
-      voi_thetas = VOI_thetas,
+      states = voi_states,
+      params = voi_params,
+      spec = voi_spec,
+      arm = "HS",
       model_type = "Heterogeneous",
-      object_prefix = "VOI",
-      object_suffix = NULL,
       probs = c(0.025, 0.975),
       t_extend = 5000,
       thin = NULL
@@ -477,11 +477,11 @@ list(
   tar_target(
     remaining_attack_Homog,
     summarize_remaining_attack_by_model(
-      loaded_objects = VOI_homog_loaded_objects,
-      voi_thetas = VOI_thetas,
+      states = voi_states,
+      params = voi_params,
+      spec = voi_spec,
+      arm = "Homog",
       model_type = "Homogeneous",
-      object_prefix = NULL,
-      object_suffix = "homog",
       probs = c(0.025, 0.975),
       t_extend = 5000,
       thin = NULL

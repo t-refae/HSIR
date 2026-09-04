@@ -1287,8 +1287,7 @@ summarize_remaining_attack_by_model <- function(
     probs = c(0.025, 0.975),
     t_extend = 5000,
     thin = NULL,
-    seed = 2,
-    denom_floor = 1e-4
+    seed = 2
 ) {
   model <- if (model_type == "Heterogeneous") "heterogeneous" else "homogeneous"
   s <- spec[spec$arm == arm, ]
@@ -1315,7 +1314,6 @@ summarize_remaining_attack_by_model <- function(
       set.seed(seed); idx <- sort(sample.int(n_draws, thin))
     }
     
-    # per-draw final size: forward-simulate THIS window's own draw to completion
     S_inf <- vapply(idx, function(k) {
       final_size_from_state(
         S_end = S_mat[k, n_time], I_end = I_mat[k, n_time], R_end = R_mat[k, n_time],
@@ -1325,14 +1323,10 @@ summarize_remaining_attack_by_model <- function(
       )
     }, numeric(1))
     
-    S_sub <- S_mat[idx, , drop = FALSE]          # [n_sub x n_time]
-    denom <- S_sub[, 1] - S_inf                  # per-draw eventual total epidemic size
-    denom[denom <= denom_floor] <- NA_real_      # drop draws with negligible inferred epidemics
+    S_sub <- S_mat[idx, , drop = FALSE]
+    rem_mat <- S_sub - S_inf
     
-    # relative remaining, per draw: (S(t) - Sinf) / (S(t0) - Sinf); = 1 at t0
-    rel_mat <- (S_sub - S_inf) / denom           # S_inf, denom recycle down rows (per draw)
-    
-    summ <- t(apply(rel_mat, 2, function(col) {
+    summ <- t(apply(rem_mat, 2, function(col) {
       c(median = stats::median(col, na.rm = TRUE),
         lower  = stats::quantile(col, probs[1], na.rm = TRUE, names = FALSE),
         upper  = stats::quantile(col, probs[2], na.rm = TRUE, names = FALSE))
@@ -1350,6 +1344,39 @@ summarize_remaining_attack_by_model <- function(
   })
 }
 
+compute_true_remaining_attack <- function(
+    true_params,
+    remaining_df,
+    i0 = 1e-4,
+    t_extend = 5000
+) {
+  max_times <- remaining_df |>
+    dplyr::group_by(Theta_num) |>
+    dplyr::summarise(t_end = max(time), .groups = "drop")
+  
+  purrr::map_dfr(seq_len(nrow(max_times)), function(i) {
+    theta_val <- max_times$Theta_num[i]
+    t_end <- max_times$t_end[i]
+    row <- true_params[true_params$Theta_num == theta_val, ]
+    
+    y0 <- c(S = 1 - i0, I = i0, R = 0, C = 0)
+    traj <- as.data.frame(deSolve::ode(
+      y = y0,
+      times = c(seq_len(t_end), t_extend),
+      func = HS_SIR,
+      parms = c(beta = row$beta, gamma = row$gamma, cv = row$cv),
+      method = "lsoda"
+    ))
+    S_inf <- traj$S[nrow(traj)]
+    
+    tibble::tibble(
+      time = traj$time[seq_len(t_end)],
+      rem_true = traj$S[seq_len(t_end)] - S_inf,
+      theta = paste0("Theta_", theta_val)
+    )
+  })
+}
+
 make_fig3_remaining_df <- function(remaining_HS, remaining_Homog) {
   dplyr::bind_rows(remaining_HS, remaining_Homog) |>
     dplyr::mutate(
@@ -1360,20 +1387,23 @@ make_fig3_remaining_df <- function(remaining_HS, remaining_Homog) {
     )
 }
 
-plot_fig3_remaining_attack <- function(fig3_df, theta_labels_named) {
+plot_fig3_remaining_attack <- function(
+    fig3_df,
+    theta_labels_named,
+    true_df = NULL
+) {
   fig3_df <- fig3_df |>
     dplyr::mutate(theta = factor(theta, levels = names(theta_labels_named)))
   
-  ggplot2::ggplot(
+  p <- ggplot2::ggplot(
     fig3_df,
     ggplot2::aes(x = time, y = rem_median, color = model_type, fill = model_type)
   ) +
-    ggplot2::geom_line(linewidth = 1.3) +
     ggplot2::geom_ribbon(
       ggplot2::aes(ymin = rem_lower, ymax = rem_upper),
       alpha = 0.3, color = NA
     ) +
-    # ggplot2::geom_hline(yintercept = 0, color = "black", linetype = "dashed") +
+    ggplot2::geom_line(linewidth = 1.3) +
     ggplot2::facet_wrap(
       ~ theta, ncol = 2,
       labeller = ggplot2::as_labeller(theta_labels_named)
@@ -1406,6 +1436,22 @@ plot_fig3_remaining_attack <- function(fig3_df, theta_labels_named) {
       axis.text = ggplot2::element_text(size = 10),
       strip.text = ggplot2::element_text(size = 12, face = "bold")
     )
+  
+  if (!is.null(true_df)) {
+    true_df <- true_df |>
+      dplyr::mutate(theta = factor(theta, levels = names(theta_labels_named)))
+    p <- p +
+      ggplot2::geom_line(
+        data = true_df,
+        ggplot2::aes(x = time, y = rem_true),
+        inherit.aes = FALSE,
+        color = "black",
+        linetype = "dashed",
+        linewidth = 0.9
+      )
+  }
+  
+  p
 }
 
 #### Alternative Fig. 4: continuous delta in remaining attack rate over time ####
