@@ -190,159 +190,6 @@ summarize_posterior_incidence <- function(posterior_incidence) {
 }
 
 #### dynamic speed / partial time-series cv inference ####
-make_dynamic_speed_comp_dt <- function() {
-  # fast, ref, slow (in order of beta)
-  
-  beta_vals <- c(1.2, 0.9, 0.6)
-  gamma_vals <- c(0.4, 0.3, 0.2)
-  R0_val <- 3 # fixed here
-  n_intervals <- c(-2, -1, 0, 1000) # partial time-series cropping (last is full TS)
-  cv_val <- 1
-  theta_vals <- seq(1, length(beta_vals)*length(n_intervals))
-  
-  out <- data.table(Theta = paste0("Theta_{", theta_vals, "}"),
-                    beta = rep(beta_vals, each=length(n_intervals)),
-                    gamma = rep(gamma_vals, each=length(n_intervals)),
-                    cv = rep(cv_val, length(theta_vals)),
-                    n_intervals = rep(n_intervals, times = length(beta_vals)),
-                    R0 = rep(R0_val, length(n_intervals))
-  )
-  
-  out
-}
-
-theta_to_dynamic_speed_setting <- function(theta_val) {
-  dplyr::case_when(
-    theta_val %in% 1:4 ~ "Fast",
-    theta_val %in% 5:8 ~ "Reference",
-    theta_val %in% 9:12 ~ "Slow",
-    TRUE ~ NA_character_
-  )
-}
-
-find_dynamic_speed_matched_folders <- function(parent_dir, desired_thetas) {
-  all_files <- list.files(parent_dir)
-  
-  matched_folders <- all_files[
-    grepl(
-      paste(desired_thetas, collapse = "|"),
-      all_files
-    )
-  ]
-  
-  if (length(matched_folders) == 0) {
-    stop(
-      "No dynamic-speed folders matched the requested theta patterns in: ",
-      parent_dir
-    )
-  }
-  
-  matched_folders
-}
-
-list_dynamic_speed_rdata_files <- function(parent_dir, matched_folders) {
-  rdata_files <- list.files(
-    file.path(parent_dir, matched_folders),
-    pattern = "\\.RData$",
-    full.names = TRUE
-  )
-  
-  if (length(rdata_files) == 0) {
-    stop(
-      "No .RData files found under matched dynamic-speed folders in: ",
-      parent_dir
-    )
-  }
-  
-  rdata_files
-}
-
-load_dynamic_speed_rdata_objects <- function(rdata_files, desired_thetas) {
-  loaded_objects <- list()
-  
-  for (theta_name in desired_thetas) {
-    scoped_files <- rdata_files[grep(theta_name, rdata_files)]
-    
-    if (length(scoped_files) == 0) {
-      warning("No .RData files found for ", theta_name)
-      next
-    }
-    
-    for (file in scoped_files) {
-      temp_env <- new.env(parent = emptyenv())
-      loaded_names <- load(file, envir = temp_env)
-      
-      for (loaded_name in loaded_names) {
-        new_name <- paste0(theta_name, "_", loaded_name)
-        loaded_objects[[new_name]] <- get(loaded_name, envir = temp_env)
-      }
-    }
-  }
-  
-  if (length(loaded_objects) == 0) {
-    stop("No dynamic-speed RData objects were loaded.")
-  }
-  
-  loaded_objects
-}
-
-make_dynamic_speed_true_params <- function(dt, theta) {
-  true_params <- as.data.frame(dt)
-  true_params$theta_raw <- theta
-  true_params
-}
-
-make_dynamic_speed_cv_draws_df <- function(
-    loaded_objects,
-    desired_thetas,
-    window_levels,
-    setting_levels = c("Fast", "Reference", "Slow")
-) {
-  purrr::map_dfr(seq_along(desired_thetas), function(theta_val) {
-    obj_name <- paste0(desired_thetas[theta_val], "_cv_draws")
-    
-    if (!obj_name %in% names(loaded_objects)) {
-      warning("Missing object: ", obj_name)
-      return(NULL)
-    }
-    
-    samples <- as.vector(loaded_objects[[obj_name]])
-    window_idx <- ((theta_val - 1) %% length(window_levels)) + 1
-    
-    tibble::tibble(
-      value = samples,
-      Theta = theta_val,
-      setting = factor(
-        theta_to_dynamic_speed_setting(theta_val),
-        levels = setting_levels
-      ),
-      window = factor(
-        window_levels[window_idx],
-        levels = window_levels
-      )
-    )
-  })
-}
-
-make_dynamic_speed_true_cv_df <- function(
-    true_params,
-    window_levels,
-    setting_levels = c("Fast", "Reference", "Slow")
-) {
-  true_params |>
-    dplyr::select(Theta, true_value = cv, theta_raw) |>
-    dplyr::mutate(
-      setting = factor(
-        theta_to_dynamic_speed_setting(theta_raw),
-        levels = setting_levels
-      ),
-      window_idx = ((theta_raw - 1) %% length(window_levels)) + 1,
-      window = factor(
-        window_levels[window_idx],
-        levels = window_levels
-      )
-    )
-}
 
 plot_dynamic_speed_cv_density_matrix <- function(cv_draws_df, true_cv_df) {
   ggplot2::ggplot(
@@ -583,162 +430,6 @@ save_ggplot_pdf <- function(plot, path, width, height, dpi = 300) {
 
 #### Fig. 3: S/HIT differences and VOI-probability summaries ####
 
-make_voi_true_params <- function(true_params, voi_thetas = 1:4) {
-  true_params <- as.data.frame(true_params)
-  
-  if ("Theta" %in% names(true_params)) {
-    theta_chr <- as.character(true_params$Theta)
-    
-    theta_num <- suppressWarnings(as.integer(theta_chr))
-    
-    if (all(is.na(theta_num))) {
-      theta_num <- suppressWarnings(
-        as.integer(gsub("[^0-9]", "", theta_chr))
-      )
-    }
-    
-    true_params$Theta_num <- theta_num
-  } else {
-    true_params$Theta_num <- seq_len(nrow(true_params))
-  }
-  
-  out <- true_params |>
-    dplyr::filter(Theta_num %in% voi_thetas) |>
-    dplyr::arrange(Theta_num)
-  
-  required_cols <- c("beta", "gamma", "cv", "R0")
-  missing_cols <- setdiff(required_cols, names(out))
-  
-  if (length(missing_cols) > 0) {
-    stop(
-      "VOI true parameter table is missing required columns: ",
-      paste(missing_cols, collapse = ", ")
-    )
-  }
-  
-  out |>
-    dplyr::select(Theta_num, beta, gamma, cv, R0)
-}
-
-list_voi_rdata_files <- function(parent_dir, desired_thetas) {
-  if (!dir.exists(parent_dir)) {
-    stop("Directory does not exist: ", parent_dir)
-  }
-  
-  all_entries <- list.files(parent_dir, full.names = FALSE)
-  
-  matched_folders <- all_entries[
-    grepl(paste(desired_thetas, collapse = "|"), all_entries)
-  ]
-  
-  if (length(matched_folders) == 0) {
-    stop(
-      "No folders matched ",
-      paste(desired_thetas, collapse = ", "),
-      " under ",
-      parent_dir
-    )
-  }
-  
-  rdata_files <- list.files(
-    file.path(parent_dir, matched_folders),
-    pattern = "\\.RData$",
-    full.names = TRUE,
-    recursive = TRUE
-  )
-  
-  if (length(rdata_files) == 0) {
-    stop("No .RData files found under matched folders in: ", parent_dir)
-  }
-  
-  sort(rdata_files)
-}
-
-load_voi_rdata_objects <- function(
-    rdata_files,
-    desired_thetas,
-    prefix = NULL,
-    suffix = NULL
-) {
-  loaded_objects <- list()
-  
-  for (theta_name in desired_thetas) {
-    scoped_files <- rdata_files[grep(theta_name, rdata_files)]
-    
-    if (length(scoped_files) == 0) {
-      warning("No .RData files found for ", theta_name)
-      next
-    }
-    
-    for (file in scoped_files) {
-      temp_env <- new.env(parent = emptyenv())
-      loaded_names <- load(file, envir = temp_env)
-      
-      for (loaded_name in loaded_names) {
-        name_parts <- c(prefix, theta_name, suffix, loaded_name)
-        name_parts <- name_parts[!is.null(name_parts) & !is.na(name_parts)]
-        new_name <- paste(name_parts, collapse = "_")
-        
-        loaded_objects[[new_name]] <- get(loaded_name, envir = temp_env)
-      }
-    }
-  }
-  
-  if (length(loaded_objects) == 0) {
-    stop("No VOI .RData objects were loaded.")
-  }
-  
-  loaded_objects
-}
-
-make_voi_parameter_draws_df <- function(
-    loaded_objects,
-    desired_thetas,
-    voi_thetas,
-    vars = c("beta", "gamma", "cv", "R0")
-) {
-  theta_levels <- rev(paste0("Theta[", voi_thetas, "]"))
-  
-  out <- purrr::map_dfr(seq_along(desired_thetas), function(theta_idx) {
-    theta_name <- desired_thetas[theta_idx]
-    theta_val <- voi_thetas[theta_idx]
-    
-    purrr::map_dfr(vars, function(param) {
-      obj_name <- paste0("VOI_", theta_name, "_", param, "_draws")
-      
-      if (!obj_name %in% names(loaded_objects)) {
-        warning("Missing object: ", obj_name)
-        return(NULL)
-      }
-      
-      tibble::tibble(
-        value = as.vector(loaded_objects[[obj_name]]),
-        theta_label = factor(
-          paste0("Theta[", theta_val, "]"),
-          levels = theta_levels
-        ),
-        param = param
-      )
-    })
-  })
-  
-  param_labels <- c(
-    beta = "beta",
-    gamma = "gamma",
-    cv = "nu",
-    R0 = "R[0]"
-  )
-  
-  out |>
-    dplyr::mutate(
-      param_label = factor(
-        param,
-        levels = names(param_labels),
-        labels = param_labels
-      )
-    )
-}
-
 make_voi_true_values_long <- function(
     true_params,
     voi_thetas,
@@ -829,56 +520,6 @@ plot_voi_parameter_ridges <- function(draws_df, true_values_df) {
     )
 }
 
-summarize_hs_x_stars <- function(loaded_objects, voi_thetas = 1:4) {
-  purrr::map_dfr(voi_thetas, function(theta_val) {
-    R0_name <- paste0("VOI_Theta_", theta_val, "_R0_draws")
-    cv_name <- paste0("VOI_Theta_", theta_val, "_cv_draws")
-    
-    if (!R0_name %in% names(loaded_objects)) {
-      stop("Missing object: ", R0_name)
-    }
-    
-    if (!cv_name %in% names(loaded_objects)) {
-      stop("Missing object: ", cv_name)
-    }
-    
-    R0_temp_draws <- as.vector(loaded_objects[[R0_name]])
-    cv_temp_draws <- as.vector(loaded_objects[[cv_name]])
-    
-    x_stars <- (1 / R0_temp_draws)^(1 / (1 + cv_temp_draws^2))
-    bounds <- stats::quantile(x_stars, probs = c(0.05, 0.95), na.rm = TRUE)
-    
-    tibble::tibble(
-      Theta = theta_val,
-      median = stats::median(x_stars, na.rm = TRUE),
-      lower = unname(bounds[[1]]),
-      upper = unname(bounds[[2]])
-    )
-  })
-}
-
-summarize_homog_x_stars <- function(loaded_objects, voi_thetas = 1:4) {
-  purrr::map_dfr(voi_thetas, function(theta_val) {
-    R0_name <- paste0("Theta_", theta_val, "_homog_R0_draws")
-    
-    if (!R0_name %in% names(loaded_objects)) {
-      stop("Missing object: ", R0_name)
-    }
-    
-    R0_temp_draws <- as.vector(loaded_objects[[R0_name]])
-    
-    x_stars <- 1 / R0_temp_draws
-    bounds <- stats::quantile(x_stars, probs = c(0.05, 0.95), na.rm = TRUE)
-    
-    tibble::tibble(
-      Theta = theta_val,
-      median = stats::median(x_stars, na.rm = TRUE),
-      lower = unname(bounds[[1]]),
-      upper = unname(bounds[[2]])
-    )
-  })
-}
-
 calculate_true_hs_x_star <- function(VOI_true_params) {
   R0_vals <- VOI_true_params$beta / VOI_true_params$gamma
   cv_vals <- VOI_true_params$cv
@@ -936,45 +577,6 @@ extract_SIR_summary <- function(y_draws, theta_label = "Theta_x") {
   
   dplyr::bind_rows(S, I, R) |>
     dplyr::mutate(theta = theta_label)
-}
-
-summarize_S_by_model <- function(
-    loaded_objects,
-    voi_thetas = 1:4,
-    model_type,
-    object_prefix = NULL,
-    object_suffix = NULL
-) {
-  purrr::map_dfr(voi_thetas, function(theta_val) {
-    name_parts <- c(
-      object_prefix,
-      paste0("Theta_", theta_val),
-      object_suffix,
-      "y_draws"
-    )
-    name_parts <- name_parts[!is.null(name_parts) & !is.na(name_parts)]
-    obj_name <- paste(name_parts, collapse = "_")
-    
-    if (!obj_name %in% names(loaded_objects)) {
-      stop("Missing object: ", obj_name)
-    }
-    
-    SIR_sum <- extract_SIR_summary(
-      y_draws = loaded_objects[[obj_name]],
-      theta_label = paste0("Theta_", theta_val)
-    )
-    
-    names(SIR_sum)[1:3] <- c("median", "lower", "upper")
-    
-    SIR_sum |>
-      dplyr::filter(state == "S") |>
-      dplyr::select(time, median, lower, upper) |>
-      dplyr::mutate(
-        theta = paste0("Theta_", theta_val),
-        model_type = model_type,
-        Theta_num = theta_val
-      )
-  })
 }
 
 make_S_minus_xstar_df <- function(S_summary, x_stars) {
@@ -1101,48 +703,6 @@ save_ggplot_pdf_plain <- function(plot, path, width, height) {
 }
 
 #### Fig. 4: NPI policy simulations ####
-
-get_voi_hs_parameter_medians <- function(loaded_objects, theta = 4) {
-  beta_name <- paste0("VOI_Theta_", theta, "_beta_draws")
-  gamma_name <- paste0("VOI_Theta_", theta, "_gamma_draws")
-  cv_name <- paste0("VOI_Theta_", theta, "_cv_draws")
-  
-  required <- c(beta_name, gamma_name, cv_name)
-  missing <- setdiff(required, names(loaded_objects))
-  
-  if (length(missing) > 0) {
-    stop(
-      "Missing HS posterior draw objects: ",
-      paste(missing, collapse = ", ")
-    )
-  }
-  
-  tibble::tibble(
-    beta = stats::median(as.vector(loaded_objects[[beta_name]]), na.rm = TRUE),
-    gamma = stats::median(as.vector(loaded_objects[[gamma_name]]), na.rm = TRUE),
-    cv = stats::median(as.vector(loaded_objects[[cv_name]]), na.rm = TRUE)
-  )
-}
-
-get_voi_homog_parameter_medians <- function(loaded_objects, theta = 4) {
-  beta_name <- paste0("Theta_", theta, "_homog_beta_draws")
-  gamma_name <- paste0("Theta_", theta, "_homog_gamma_draws")
-  
-  required <- c(beta_name, gamma_name)
-  missing <- setdiff(required, names(loaded_objects))
-  
-  if (length(missing) > 0) {
-    stop(
-      "Missing homogeneous posterior draw objects: ",
-      paste(missing, collapse = ", ")
-    )
-  }
-  
-  tibble::tibble(
-    beta = stats::median(as.vector(loaded_objects[[beta_name]]), na.rm = TRUE),
-    gamma = stats::median(as.vector(loaded_objects[[gamma_name]]), na.rm = TRUE)
-  )
-}
 
 HS_NPI <- function(t, state, params) {
   with(as.list(c(state, params)), {
@@ -1395,7 +955,7 @@ plot_npi_heatmap <- function(
 
 make_npi_tradeoff_grid_df <- function(
     results_all,
-    start_keep = c(5, 10, 15, 20),
+    start_keep = c(5, 10, 15),
     dur_keep = c(30, 60, 90)
 ) {
   results_all |>
@@ -1412,12 +972,12 @@ make_npi_tradeoff_grid_df <- function(
       NPI_dur = factor(
         NPI_dur,
         levels = dur_keep,
-        labels = c("Duration (days): 30", "60", "90")
+        labels = c(paste0("Duration (days): ", dur_keep[1]), as.character(dur_keep[-1]))
       ),
       NPI_start = factor(
         NPI_start,
         levels = start_keep,
-        labels = c("Start day: 5", "10", "15", "20")
+        labels = c(paste0("Start day: ", start_keep[1]), as.character(start_keep[-1]))
       )
     )
 }
@@ -1673,12 +1233,6 @@ param_ridge_plot <- function(bundles, files, param) {
 
 #### Alternative Fig. 3: remaining attack rate (unmitigated remaining burden) ####
 
-.voi_object_name <- function(prefix, theta_val, suffix, leaf) {
-  parts <- c(prefix, paste0("Theta_", theta_val), suffix, leaf)
-  parts <- parts[!is.null(parts) & !is.na(parts)]
-  paste(parts, collapse = "_")
-}
-
 extract_state_draws_matrix <- function(y_draws, state_index) {
   var_names <- dimnames(y_draws)[[3]]
   if (is.null(var_names)) {
@@ -1725,41 +1279,33 @@ final_size_from_state <- function(
 }
 
 summarize_remaining_attack_by_model <- function(
-    loaded_objects,
-    voi_thetas = 1:4,
+    states,
+    params,
+    spec,
+    arm,
     model_type,
-    object_prefix = NULL,
-    object_suffix = NULL,
-    probs = c(0.05, 0.95),
+    probs = c(0.025, 0.975),
     t_extend = 5000,
     thin = NULL,
     seed = 2,
     denom_floor = 1e-4
 ) {
   model <- if (model_type == "Heterogeneous") "heterogeneous" else "homogeneous"
+  s <- spec[spec$arm == arm, ]
   
-  purrr::map_dfr(voi_thetas, function(theta_val) {
-    y_name     <- .voi_object_name(object_prefix, theta_val, object_suffix, "y_draws")
-    beta_name  <- .voi_object_name(object_prefix, theta_val, object_suffix, "beta_draws")
-    gamma_name <- .voi_object_name(object_prefix, theta_val, object_suffix, "gamma_draws")
-    cv_name    <- .voi_object_name(object_prefix, theta_val, object_suffix, "cv_draws")
+  purrr::map_dfr(seq_len(nrow(s)), function(i) {
+    theta_val <- s$theta[i]
+    y_draws <- states[[s$key[i]]]
     
-    needed <- c(y_name, beta_name, gamma_name, if (model == "heterogeneous") cv_name)
-    missing <- setdiff(needed, names(loaded_objects))
-    if (length(missing) > 0) stop("Missing object(s): ", paste(missing, collapse = ", "))
-    
-    S_mat <- extract_state_draws_matrix(loaded_objects[[y_name]], 1)
-    I_mat <- extract_state_draws_matrix(loaded_objects[[y_name]], 2)
-    R_mat <- extract_state_draws_matrix(loaded_objects[[y_name]], 3)
+    S_mat <- extract_state_draws_matrix(y_draws, 1)
+    I_mat <- extract_state_draws_matrix(y_draws, 2)
+    R_mat <- extract_state_draws_matrix(y_draws, 3)
     n_draws <- nrow(S_mat); n_time <- ncol(S_mat)
     
-    beta_v  <- as.vector(loaded_objects[[beta_name]])
-    gamma_v <- as.vector(loaded_objects[[gamma_name]])
-    cv_v <- if (model == "heterogeneous") {
-      as.vector(loaded_objects[[cv_name]])
-    } else {
-      rep(NA_real_, n_draws)
-    }
+    p <- params[params$arm == arm & params$theta == theta_val, ]
+    beta_v  <- p$beta
+    gamma_v <- p$gamma
+    cv_v <- if (model == "heterogeneous") p$cv else rep(NA_real_, n_draws)
     if (length(beta_v) != n_draws || length(gamma_v) != n_draws) {
       stop("Parameter draws not aligned with trajectory draws for Theta_", theta_val)
     }
