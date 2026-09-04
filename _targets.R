@@ -6,7 +6,7 @@ tar_option_set(
   packages = c(
     "deSolve", "data.table", "dplyr", "tidyr", "ggplot2", "patchwork", "posterior",
     "cmdstanr", "stantargets", "purrr", "tibble", "ggh4x", "ggridges", "scales",
-    "viridisLite", "latex2exp", "scico", "ggridges"
+    "viridisLite", "latex2exp", "scico", "ggridges", "yaml"
   ),
   format = "rds"
 )
@@ -282,125 +282,28 @@ list(
   ),
   
   #### Inference-based identifiability analysis of cv as a function of speed of dynamics ####
-  tar_target(
-    dynamic_speed_comp_parent_dir,
-    "data/processed/dynamic_speed_comp"
-  ),
   
+  tar_target(pts_fitting_root, "../HSIR_fitting"),
   
-  tar_target(
-    dynamic_speed_comp_dt,
-    make_dynamic_speed_comp_dt()
-  ),
+  tar_target(pts_spec, pts_fit_spec(pts_fitting_root, cv = 1)),
   
-  # tar_target(
-  #   dynamic_speed_comp_model,
-  #   "HS"
-  # ),
+  tar_target(pts_bundle_files, pts_fit_files(pts_spec), format = "file"),
   
-  tar_target(
-    dynamic_speed_comp_LL,
-    "pois"
-  ),
-
-  tar_target(
-    dynamic_speed_comp_TS_type,
-    "PTS"
-  ),
-
-  tar_target(
-    dynamic_speed_comp_theta,
-    1:12
-  ),
-
-  tar_target(
-    dynamic_speed_window_levels,
-    c("-2 GI pre-peak", "-1 GI pre-peak", "At peak", "Complete")
-  ),
-
-  tar_target(
-    dynamic_speed_setting_levels,
-    c("Fast", "Reference", "Slow")
-  ),
-
-  tar_target(
-    dynamic_speed_desired_thetas,
-    paste(
-      "Theta",
-      dynamic_speed_comp_theta,
-      dynamic_speed_comp_LL,
-      dynamic_speed_comp_TS_type,
-      sep = "_"
-    )
-  ),
-
-  tar_target(
-    dynamic_speed_matched_folders,
-    find_dynamic_speed_matched_folders(
-      parent_dir = dynamic_speed_comp_parent_dir,
-      desired_thetas = dynamic_speed_desired_thetas
-    )
-  ),
-
-  tar_target(
-    dynamic_speed_rdata_files,
-    list_dynamic_speed_rdata_files(
-      parent_dir = dynamic_speed_comp_parent_dir,
-      matched_folders = dynamic_speed_matched_folders
-    ),
-    format = "file"
-  ),
-
-  tar_target(
-    dynamic_speed_loaded_objects,
-    load_dynamic_speed_rdata_objects(
-      rdata_files = dynamic_speed_rdata_files,
-      desired_thetas = dynamic_speed_desired_thetas
-    )
-  ),
-
-  tar_target(
-    dynamic_speed_true_params,
-    make_dynamic_speed_true_params(
-      dt = dynamic_speed_comp_dt,
-      theta = dynamic_speed_comp_theta
-    )
-  ),
-
-  tar_target(
-    dynamic_speed_cv_draws_df,
-    make_dynamic_speed_cv_draws_df(
-      loaded_objects = dynamic_speed_loaded_objects,
-      desired_thetas = dynamic_speed_desired_thetas,
-      window_levels = dynamic_speed_window_levels,
-      setting_levels = dynamic_speed_setting_levels
-    )
-  ),
-
-  tar_target(
-    dynamic_speed_true_cv_df,
-    make_dynamic_speed_true_cv_df(
-      true_params = dynamic_speed_true_params,
-      window_levels = dynamic_speed_window_levels,
-      setting_levels = dynamic_speed_setting_levels
-    )
-  ),
+  tar_target(pts_cv_draws_df, pts_cv_draws(pts_spec, pts_bundle_files)),
+  
+  tar_target(pts_true_cv_df, pts_true_cv(pts_spec)),
 
   tar_target(
     dynamic_speed_p_cv,
     plot_dynamic_speed_cv_density_matrix(
-      cv_draws_df = dynamic_speed_cv_draws_df,
-      true_cv_df = dynamic_speed_true_cv_df
+      cv_draws_df = pts_cv_draws_df,
+      true_cv_df = pts_true_cv_df
     )
   ),
-
+  
   tar_target(
     dynamic_speed_cv_ridge_df,
-    make_dynamic_speed_cv_ridge_df(
-      cv_draws_df = dynamic_speed_cv_draws_df,
-      setting_levels = dynamic_speed_setting_levels,
-      window_levels = dynamic_speed_window_levels
-    )
+    make_dynamic_speed_cv_ridge_df(cv_draws_df = pts_cv_draws_df)
   ),
 
   tar_target(
@@ -440,93 +343,16 @@ list(
   
   #### S/HIT differences and VOI posterior summaries ####
   
+  tar_target(voi_fitting_root, "../HSIR_fitting"),
+  tar_target(voi_spec, voi_fit_spec(voi_fitting_root)),
+  tar_target(voi_bundle_files, voi_fit_files(voi_spec), format = "file"),
+  tar_target(voi_params, voi_param_draws(voi_spec, voi_bundle_files)),
+  tar_target(voi_states, voi_state_draws(voi_spec, voi_bundle_files)),
   
-  
-  tar_target(
-    hit_differences_parent_dir,
-    "data/processed/HIT_differences"
-  ),
-  
-  tar_target(
-    hit_differences_hs_dir,
-    file.path(hit_differences_parent_dir, "HS")
-  ),
-  
-  tar_target(
-    hit_differences_homog_dir,
-    file.path(hit_differences_parent_dir, "Homog")
-  ),
-  
-  tar_target(
-    VOI_thetas,
-    1:4
-  ),
-  
-  tar_target(
-    VOI_desired_thetas,
-    paste0("Theta_", VOI_thetas)
-  ),
-  
-  tar_target(
-    VOI_true_params,
-    make_voi_true_params(
-      true_params = dynamic_speed_comp_dt,
-      voi_thetas = VOI_thetas
-    )
-  ),
-  
-  tar_target(
-    VOI_hs_rdata_files,
-    list_voi_rdata_files(
-      parent_dir = hit_differences_hs_dir,
-      desired_thetas = VOI_desired_thetas
-    ),
-    format = "file"
-  ),
-  
-  tar_target(
-    VOI_homog_rdata_files,
-    list_voi_rdata_files(
-      parent_dir = hit_differences_homog_dir,
-      desired_thetas = VOI_desired_thetas
-    ),
-    format = "file"
-  ),
-  
-  tar_target(
-    VOI_hs_loaded_objects,
-    load_voi_rdata_objects(
-      rdata_files = VOI_hs_rdata_files,
-      desired_thetas = VOI_desired_thetas,
-      prefix = "VOI",
-      suffix = NULL
-    )
-  ),
-  
-  tar_target(
-    VOI_homog_loaded_objects,
-    load_voi_rdata_objects(
-      rdata_files = VOI_homog_rdata_files,
-      desired_thetas = VOI_desired_thetas,
-      prefix = NULL,
-      suffix = "homog"
-    )
-  ),
-  
-  tar_target(
-    VOI_hs_vars,
-    c("beta", "gamma", "cv", "R0")
-  ),
-  
-  tar_target(
-    VOI_hs_all_draws,
-    make_voi_parameter_draws_df(
-      loaded_objects = VOI_hs_loaded_objects,
-      desired_thetas = VOI_desired_thetas,
-      voi_thetas = VOI_thetas,
-      vars = VOI_hs_vars
-    )
-  ),
+  tar_target(VOI_thetas, sort(unique(voi_spec$theta))),
+  tar_target(VOI_true_params, voi_true_params(voi_spec)),
+  tar_target(VOI_hs_vars, c("beta", "gamma", "cv", "R0")),
+  tar_target(VOI_hs_all_draws, voi_parameter_draws_df(voi_params, VOI_hs_vars)),
   
   tar_target(
     VOI_true_vals_long,
@@ -564,48 +390,20 @@ list(
     format = "file"
   ),
   
-  tar_target(
-    HS_x_stars,
-    summarize_hs_x_stars(
-      loaded_objects = VOI_hs_loaded_objects,
-      voi_thetas = VOI_thetas
-    )
-  ),
-  
-  tar_target(
-    Homog_x_stars,
-    summarize_homog_x_stars(
-      loaded_objects = VOI_homog_loaded_objects,
-      voi_thetas = VOI_thetas
-    )
-  ),
   
   tar_target(
     true_HS_x_star,
     calculate_true_hs_x_star(VOI_true_params)
   ),
   
-  tar_target(
-    S_HS,
-    summarize_S_by_model(
-      loaded_objects = VOI_hs_loaded_objects,
-      voi_thetas = VOI_thetas,
-      model_type = "Heterogeneous",
-      object_prefix = "VOI",
-      object_suffix = NULL
-    )
-  ),
+  tar_target(HS_x_stars,    voi_x_stars(voi_params, "HS")),
+  tar_target(Homog_x_stars, voi_x_stars(voi_params, "Homog")),
   
-  tar_target(
-    S_Homog,
-    summarize_S_by_model(
-      loaded_objects = VOI_homog_loaded_objects,
-      voi_thetas = VOI_thetas,
-      model_type = "Homogeneous",
-      object_prefix = NULL,
-      object_suffix = "homog"
-    )
-  ),
+  tar_target(S_HS,    voi_S_summary(voi_states, voi_spec, "HS", "Heterogeneous")),
+  tar_target(S_Homog, voi_S_summary(voi_states, voi_spec, "Homog", "Homogeneous")),
+  
+  tar_target(VOI_HS_medians,    voi_medians(voi_params, "HS", npi_complete_theta)),
+  tar_target(VOI_homog_medians, voi_medians(voi_params, "Homog", npi_complete_theta)),
   
   tar_target(
     S_HS_diff,
@@ -670,8 +468,9 @@ list(
       model_type = "Heterogeneous",
       object_prefix = "VOI",
       object_suffix = NULL,
+      probs = c(0.025, 0.975),
       t_extend = 5000,
-      thin = NULL    # set to an integer (e.g. 500) to subsample draws for speed
+      thin = NULL
     )
   ),
   
@@ -683,8 +482,18 @@ list(
       model_type = "Homogeneous",
       object_prefix = NULL,
       object_suffix = "homog",
+      probs = c(0.025, 0.975),
       t_extend = 5000,
       thin = NULL
+    )
+  ),
+  
+  tar_target(
+    remaining_attack_true,
+    compute_true_remaining_attack(
+      true_params = VOI_true_params,
+      remaining_df = fig3_remaining_df,
+      i0 = 1e-4
     )
   ),
   
@@ -700,7 +509,8 @@ list(
     fig_3_remaining,
     plot_fig3_remaining_attack(
       fig3_df = fig3_remaining_df,
-      theta_labels_named = theta_labels_named_fig3
+      theta_labels_named = theta_labels_named_fig3,
+      true_df = remaining_attack_true
     )
   ),
   
@@ -735,22 +545,6 @@ list(
   tar_target(
     npi_i0_prop,
     1 / npi_population_size
-  ),
-  
-  tar_target(
-    VOI_HS_medians,
-    get_voi_hs_parameter_medians(
-      loaded_objects = VOI_hs_loaded_objects,
-      theta = npi_complete_theta
-    )
-  ),
-  
-  tar_target(
-    VOI_homog_medians,
-    get_voi_homog_parameter_medians(
-      loaded_objects = VOI_homog_loaded_objects,
-      theta = npi_complete_theta
-    )
   ),
   
   tar_target(
@@ -1046,25 +840,13 @@ list(
   
   #### Post-NPI information gain: CV posteriors by observed generation interval ####
   
-  tar_target(
-    npi_informing_parent_dir,
-    "data/processed/NPI_inform_release"
-  ),
+  tar_target(npi_fitting_root, "../HSIR_fitting"),
   
-  tar_target(
-    npi_informing_cv_files,
-    list_npi_informing_cv_files(
-      parent_dir = npi_informing_parent_dir
-    ),
-    format = "file"
-  ),
+  tar_target(npi_spec, npi_fit_spec(npi_fitting_root)),
   
-  tar_target(
-    npi_informing_cv_draws_df,
-    make_npi_informing_cv_draws_df(
-      cv_files = npi_informing_cv_files
-    )
-  ),
+  tar_target(npi_bundle_files, npi_fit_files(npi_spec), format = "file"),
+  
+  tar_target(npi_informing_cv_draws_df, npi_cv_draws(npi_spec, npi_bundle_files)),
   
   tar_target(
     NPI_informing_plot,
