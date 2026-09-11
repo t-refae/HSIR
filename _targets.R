@@ -2,11 +2,17 @@ library(targets)
 library(cmdstanr)
 library(stantargets)
 
+ggplot2::theme_set(
+  ggplot2::theme_minimal(base_size = 8, base_family = "Helvetica")
+)
+ggplot2::update_geom_defaults("text", list(family = "Helvetica"))
+ggplot2::update_geom_defaults("label", list(family = "Helvetica"))
+
 tar_option_set(
   packages = c(
     "deSolve", "data.table", "dplyr", "tidyr", "ggplot2", "patchwork", "posterior",
     "cmdstanr", "stantargets", "purrr", "tibble", "ggh4x", "ggridges", "scales",
-    "viridisLite", "latex2exp", "scico", "ggridges", "yaml"
+    "viridisLite", "latex2exp", "scico", "ggridges", "yaml", "openxlsx"
   ),
   format = "rds"
 )
@@ -14,6 +20,22 @@ tar_option_set(
 tar_source()
 
 list(
+  #### Susceptibility contour plot (introductory figure) ####
+  tar_target(fig_0_dist_df, make_susceptibility_dist_df()),
+  tar_target(fig_0_mean_sus_df, make_mean_sus_df()),
+  tar_target(
+    fig_0_contour,
+    plot_susceptibility_and_hit(fig_0_dist_df, fig_0_mean_sus_df)
+  ),
+  tar_target(
+    fig_0_contour_pdf,
+    save_ggplot_pdf(
+      plot = fig_0_contour,
+      path = file.path(manuscript_figures_dir, "Fig_0_susceptibility_contour.pdf"),
+      width = 11, height = 4.8
+    ),
+    format = "file"
+  ),
   #### SIR vs. HSIR model comparisons ####
   
   ## shared params
@@ -102,7 +124,7 @@ list(
     length(shared_tps)
   ),
 
-  # fitting the HS model to homogeneous-generated data.
+  # fitting the HS model to homogeneous-generated data
   tar_target(
     homog_cases_stan,
     make_stan_cases_from_cumulative(
@@ -607,7 +629,7 @@ list(
   
   tar_target(
     npi_attack_midpoint,
-    calculate_npi_attack_midpoint(npi_results_wide)
+    calculate_npi_midpoint(npi_results_wide, z = "attack_rate_diff")
   ),
   
   tar_target(
@@ -615,8 +637,8 @@ list(
     plot_npi_heatmap(
       df = npi_results_wide,
       z = "attack_rate_diff",
-      title = "Delta Final Attack Rate (Homog median - HS median)",
-      fill_lab = "Delta Attack Rate",
+      title = NULL,
+      fill_lab = "Final attack rate\n(SIR - hSIR)",
       midpoint = npi_attack_midpoint,
       label_fun = scales::percent_format(accuracy = 1)
     )
@@ -627,10 +649,10 @@ list(
     plot_npi_heatmap(
       df = npi_results_wide,
       z = "peak_incidence_diff",
-      title = "Delta Peak Incidence (Homog median - HS median)",
-      fill_lab = "Delta Peak incidence",
+      title = NULL,
+      fill_lab = "Peak incidence\n(SIR - hSIR)",
       midpoint = 0,
-      label_fun = scales::label_number(big.mark = ",", accuracy = 1)
+      label_fun = scales::percent_format(accuracy = 1)
     )
   ),
   
@@ -639,8 +661,8 @@ list(
     plot_npi_heatmap(
       df = npi_results_wide,
       z = "prop_S_end_diff",
-      title = "Delta Prop Susceptible at NPI end (Homog median - HS median)",
-      fill_lab = "Delta Prop S",
+      title = NULL,
+      fill_lab = "Proportion susceptible at NPI end\n(SIR - hSIR)",
       midpoint = 0,
       label_fun = scales::percent_format(accuracy = 1)
     )
@@ -650,12 +672,8 @@ list(
     hm_attack_pdf,
     save_ggplot_pdf(
       plot = hm_attack,
-      path = file.path(
-        manuscript_figures_dir,
-        "Fig_4_a_attack_rate_heat_map.pdf"
-      ),
-      width = 9,
-      height = 6
+      path = file.path(manuscript_figures_dir, "Fig_4_a_attack_rate_heat_map.pdf"),
+      width = 9, height = 6
     ),
     format = "file"
   ),
@@ -664,12 +682,8 @@ list(
     hm_peak_inc_pdf,
     save_ggplot_pdf(
       plot = hm_peak_inc,
-      path = file.path(
-        manuscript_figures_dir,
-        "Fig_4_b_peak_incidence_heat_map.pdf"
-      ),
-      width = 9,
-      height = 6
+      path = file.path(manuscript_figures_dir, "Fig_4_b_peak_incidence_heat_map.pdf"),
+      width = 9, height = 6
     ),
     format = "file"
   ),
@@ -678,12 +692,8 @@ list(
     hm_propS_pdf,
     save_ggplot_pdf(
       plot = hm_propS,
-      path = file.path(
-        manuscript_figures_dir,
-        "Fig_4_c_prop_susceptible_heat_map.pdf"
-      ),
-      width = 9,
-      height = 6
+      path = file.path(manuscript_figures_dir, "Fig_4_c_prop_susceptible_heat_map.pdf"),
+      width = 9, height = 6
     ),
     format = "file"
   ),
@@ -869,7 +879,35 @@ list(
     format = "file"
   ),
 
-  #### Supplementary: full time series fits for selected parameter combinations ####
+  #### Supplementary figs ####
+  
+  # infectious dynamics across settings 
+  tar_target(
+    I_dynamics_df,
+    make_I_dynamics_df(
+      grid_csv = FTS_grid_csv,
+      population_size = 1e6,
+      t_max = 800
+    )
+  ),
+  
+  tar_target(
+    I_dynamics_plot,
+    plot_I_dynamics(I_dynamics_df)
+  ),
+  
+  tar_target(
+    I_dynamics_pdf,
+    save_ggplot_pdf(
+      plot = I_dynamics_plot,
+      path = file.path(manuscript_figures_dir, "SI_Fig_I_dynamics.pdf"),
+      width = 11,
+      height = 8
+    ),
+    format = "file"
+  ),
+  
+  # full time series (FTS) fits
   tar_target(
     FTS_fit_files, list.files("../HSIR_fitting/outputs/FTS", "\\.rds$", full.names = TRUE),
     format = "file"
@@ -895,6 +933,118 @@ list(
       ggplot2::ggsave(out[["gamma"]], FTS_gamma_ridge, width = 7, height = 8, dpi = 300)
       unname(out)
     },
+    format = "file"
+  ),
+  
+  tar_target(
+    FTS_grid_csv,
+    {
+      cfg <- yaml::read_yaml("../HSIR_fitting/config.yml")
+      file.path("../HSIR_fitting", cfg$scenarios_csv)
+    },
+    format = "file"
+  ),
+  
+  tar_target(
+    FTS_param_ridge_df,
+    fts_param_ridge_df(
+      bundles = FTS_fit_bundles,
+      files = FTS_fit_files,
+      grid_csv = FTS_grid_csv,
+      params = c("beta", "gamma", "R0", "cv"),
+      r0_keep = 3
+    )
+  ),
+  
+  tar_target(
+    FTS_param_ridges,
+    fts_param_ridge_plot(FTS_param_ridge_df)
+  ),
+  
+  tar_target(
+    FTS_ridge_pdf,
+    save_ggplot_pdf(
+      plot = FTS_param_ridges,
+      path = file.path(manuscript_figures_dir, "FTS_ridge_plots.pdf"),
+      width = 11,
+      height = 8
+    ),
+    format = "file"
+  ),
+  
+  #### Supplementary tables ####
+  tar_target(
+    convergence_pts_df,
+    convergence_df_pts(pts_spec, pts_bundle_files)
+  ),
+  
+  tar_target(
+    convergence_voi_df,
+    convergence_df_voi(voi_spec, voi_bundle_files)
+  ),
+  
+  tar_target(
+    convergence_npi_df,
+    convergence_df_npi(npi_spec, npi_bundle_files)
+  ),
+  
+  tar_target(
+    convergence_fts_df,
+    convergence_df_fts(
+      files = FTS_fit_files,
+      grid_csv = FTS_grid_csv,
+      r0_keep = 3
+    )
+  ),
+  
+  tar_target(
+    convergence_workbook,
+    save_convergence_workbook(
+      dfs = list(
+        PTS = convergence_pts_df,
+        VOI = convergence_voi_df,
+        NPI = convergence_npi_df,
+        FTS = convergence_fts_df
+      ),
+      path = file.path("outputs", "tables", "Supplementary_Data_1_convergence.xlsx")
+    ),
+    format = "file"
+  ),
+  
+  tar_target(
+    supp_fig3_source_csv,
+    "outputs/source_data_SuppFig3_homog_truth.csv",
+    format = "file"
+  ),
+  
+  tar_target(
+    supp_fig3_source_df,
+    utils::read.csv(supp_fig3_source_csv, stringsAsFactors = FALSE)
+  ),
+  
+  tar_target(
+    source_data_workbook,
+    save_source_data_workbook(
+      sheets = list(
+        "Fig1a_susceptibility"     = fig_0_dist_df,
+        "Fig1b_mean_susceptibility"= fig_0_mean_sus_df,
+        "Fig2ab_trajectories"      = combined_long,
+        "Fig2c_hSIR_fit_to_SIR"    = incidence_summary_1,
+        "Fig2d_SIR_fit_to_hSIR"    = incidence_summary_2,
+        "Fig3_nu_posteriors"       = dynamic_speed_cv_ridge_df,
+        "Fig4_remaining_attack"    = fig3_remaining_df,
+        "Fig4_truth"               = remaining_attack_true,
+        "Fig5_tradeoff"            = npi_tradeoff_grid_df,
+        "Fig6_remaining_by_model"  = npi_remaining_grid,
+        "Fig7_marginal_value"      = npi_mv_df,
+        "Fig8_post_NPI_nu"         = npi_informing_cv_draws_df,
+        "SuppFig1_I_dynamics"      = I_dynamics_df,
+        "SuppFig2_FTS_ridges"      = FTS_param_ridge_df,
+        "SuppFig3_homog_truth"     = supp_fig3_source_df,
+        "SuppFig4_6_heatmaps"      = npi_results_wide
+      ),
+      path = file.path("outputs", "Source_Data.xlsx")
+    ),
     format = "file"
   )
   
