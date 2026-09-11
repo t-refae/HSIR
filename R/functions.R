@@ -413,7 +413,8 @@ assemble_fig_1_panel <- function(fig_1_a, fig_1_b, plot_fit_1, plot_fit_2) {
     )
 }
 
-save_ggplot_pdf <- function(plot, path, width, height, dpi = 300) {
+save_ggplot_pdf <- function(plot, path, width, height, dpi = 300,
+                            device = grDevices::cairo_pdf) {
   dir.create(dirname(path), showWarnings = FALSE, recursive = TRUE)
   
   ggplot2::ggsave(
@@ -885,22 +886,12 @@ make_npi_results_wide <- function(results_all) {
     )
 }
 
-calculate_npi_attack_midpoint <- function(results_wide) {
+calculate_npi_midpoint <- function(results_wide, z) {
   midpoint <- results_wide |>
-    dplyr::filter(
-      eff == 0,
-      NPI_start == 0,
-      NPI_dur == 30
-    ) |>
-    dplyr::summarise(
-      mid = mean(attack_rate_diff, na.rm = TRUE)
-    ) |>
+    dplyr::filter(eff == 0, NPI_start == 0, NPI_dur == 30) |>
+    dplyr::summarise(mid = mean(.data[[z]], na.rm = TRUE)) |>
     dplyr::pull(mid)
-  
-  if (length(midpoint) == 0 || is.na(midpoint)) {
-    midpoint <- 0
-  }
-  
+  if (length(midpoint) == 0 || is.na(midpoint)) midpoint <- 0
   midpoint
 }
 
@@ -1362,7 +1353,7 @@ compute_true_remaining_attack <- function(
     y0 <- c(S = 1 - i0, I = i0, R = 0, C = 0)
     traj <- as.data.frame(deSolve::ode(
       y = y0,
-      times = c(seq_len(t_end), t_extend),
+      times = c(seq_len(t_end + 1L), t_extend),
       func = HS_SIR,
       parms = c(beta = row$beta, gamma = row$gamma, cv = row$cv),
       method = "lsoda"
@@ -1370,8 +1361,8 @@ compute_true_remaining_attack <- function(
     S_inf <- traj$S[nrow(traj)]
     
     tibble::tibble(
-      time = traj$time[seq_len(t_end)],
-      rem_true = traj$S[seq_len(t_end)] - S_inf,
+      time = seq_len(t_end),
+      rem_true = traj$S[1L + seq_len(t_end)] - S_inf,
       theta = paste0("Theta_", theta_val)
     )
   })
@@ -1419,7 +1410,7 @@ plot_fig3_remaining_attack <- function(
     ) +
     ggplot2::labs(
       x = "Time (Days)",
-      y = "Remaining attack rate (unmitigated)",
+      y = "Remaining attack rate (% of population)",
       color = "Susceptibility",
       fill = "Susceptibility"
     ) +
@@ -1675,10 +1666,7 @@ plot_npi_marginal_value <- function(
     ggplot2::geom_line(linewidth = 0.9) +
     ggplot2::facet_wrap(~ NPI_start_f) +
     ggplot2::coord_cartesian(xlim = c(0, dur_max_display)) +
-    ggplot2::scale_color_viridis_c(
-      option = "plasma", end = 0.85, limits = c(0, 1),
-      labels = scales::percent_format(accuracy = 1)
-    ) +
+    ggplot2::scale_color_viridis_c(option = "plasma", end = 0.85, limits=c(0,1)) +
     ggplot2::scale_linetype_manual(
       values = c("Homogeneous" = "solid", "Heterogeneous" = "dashed")
     ) +
@@ -1710,4 +1698,265 @@ plot_npi_marginal_value <- function(
         override.aes = list(linewidth = 0.9)
       )
     )
+}
+
+#### Supplementary plots ####
+
+# FTS ridge plot
+
+fts_param_ridge_df <- function(
+    bundles,
+    files,
+    grid_csv,
+    params = c("beta", "gamma", "R0", "cv"),
+    r0_keep = 3
+) {
+  grid <- utils::read.csv(grid_csv, stringsAsFactors = FALSE)
+  ids <- as.integer(sub(
+    "^id", "",
+    regmatches(basename(files), regexpr("id[0-9]+", basename(files)))
+  ))
+  meta <- grid[match(ids, grid$id), , drop = FALSE]
+  
+  ok <- !is.na(meta$id)
+  if (!is.null(r0_keep)) ok <- ok & meta$R0 %in% r0_keep
+  bundles <- bundles[ok]
+  meta <- meta[ok, , drop = FALSE]
+  if (nrow(meta) == 0) stop("No FTS bundles matched the parameter grid.")
+  
+  meta$setting <- factor(
+    meta$param_combo_label,
+    levels = c("slow", "reference", "fast"),
+    labels = c("Slow", "Reference", "Fast")
+  )
+  cv_levels <- sort(unique(meta$cv))
+  meta$cv_lab <- factor(
+    sprintf("cv = %g", meta$cv),
+    levels = rev(sprintf("cv = %g", cv_levels))
+  )
+  
+  disp <- c(beta = "beta", gamma = "gamma", R0 = "R[0]", cv = "nu")
+  
+  d <- purrr::map_dfr(seq_len(nrow(meta)), function(i) {
+    dr <- as.data.frame(bundles[[i]]$draws)
+    keep_p <- intersect(params, names(dr))
+    if (length(keep_p) == 0) {
+      stop("None of the requested parameters found in bundle ", i)
+    }
+    purrr::map_dfr(keep_p, function(p) {
+      data.frame(
+        setting = meta$setting[i],
+        cv_lab = meta$cv_lab[i],
+        parameter = disp[[p]],
+        value = as.numeric(dr[[p]]),
+        true = switch(
+          p,
+          beta = meta$beta[i],
+          gamma = meta$gamma[i],
+          R0 = meta$R0[i],
+          cv = meta$cv[i],
+          NA_real_
+        )
+      )
+    })
+  })
+  
+  d$parameter <- factor(d$parameter, levels = unname(disp[params]))
+  d
+}
+
+fts_param_ridge_plot <- function(ridge_df) {
+  tv <- unique(ridge_df[, c("setting", "cv_lab", "parameter", "true")])
+  
+  ggplot2::ggplot(ridge_df, ggplot2::aes(x = value, y = cv_lab, fill = cv_lab)) +
+    ggridges::geom_density_ridges(
+      scale = 1.05, alpha = 0.8, colour = "grey30", rel_min_height = 0.01
+    ) +
+    ggplot2::geom_point(
+      data = tv, inherit.aes = FALSE,
+      ggplot2::aes(x = true, y = cv_lab),
+      shape = 124, size = 3
+    ) +
+    ggplot2::facet_grid(
+      rows = ggplot2::vars(setting),
+      cols = ggplot2::vars(parameter),
+      scales = "free_x",
+      labeller = ggplot2::labeller(parameter = ggplot2::label_parsed)
+    ) +
+    ggplot2::scale_fill_viridis_d(guide = "none") +
+    ggplot2::labs(x = NULL, y = NULL) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(
+      strip.text = ggplot2::element_text(face = "bold"),
+      strip.text.y.right = ggplot2::element_text(angle = 270)
+    )
+}
+
+
+#### Supplementary tables ####
+
+# convergence diagnostics
+.spec_truths <- function(spec) {
+  lapply(seq_len(nrow(spec)), function(i) {
+    tr <- c(
+      beta  = if ("beta"  %in% names(spec)) spec$beta[i]  else NA_real_,
+      gamma = if ("gamma" %in% names(spec)) spec$gamma[i] else NA_real_,
+      cv    = if ("cv"    %in% names(spec)) spec$cv[i]    else NA_real_
+    )
+    tr <- c(tr, R0 = unname(tr[["beta"]] / tr[["gamma"]]))
+    tr[!is.na(tr)]
+  })
+}
+
+bundle_convergence_summary <- function(
+    path,
+    label,
+    params = c("beta", "gamma", "cv", "R0"),
+    truth = NULL
+) {
+  b <- readRDS(path)
+  dr <- posterior::as_draws_df(as.data.frame(b$draws))
+  keep <- intersect(params, posterior::variables(dr))
+  if (length(keep) == 0) {
+    stop("None of the requested parameters found in ", basename(path))
+  }
+  
+  s <- posterior::summarise_draws(
+    posterior::subset_draws(dr, variable = keep),
+    "median",
+    ~posterior::quantile2(.x, probs = c(0.025, 0.975)),
+    posterior::default_convergence_measures()
+  )
+  
+  
+  true_vals <- if (is.null(truth)) {
+    rep(NA_real_, nrow(s))
+  } else {
+    unname(truth[s$variable])
+  }
+  
+  s |>
+    tibble::as_tibble() |>
+    dplyr::mutate(
+      fit = label,
+      true = true_vals,
+      .before = 1
+    )
+}
+
+make_convergence_df <- function(
+    paths,
+    labels,
+    truths = NULL,
+    params = c("beta", "gamma", "cv", "R0")
+) {
+  if (is.null(truths)) truths <- vector("list", length(paths))
+  purrr::pmap_dfr(
+    list(paths, labels, truths),
+    function(p, l, tr) {
+      bundle_convergence_summary(p, l, params = params, truth = tr)
+    }
+  )
+}
+
+convergence_df_pts <- function(spec, paths) {
+  make_convergence_df(
+    paths,
+    sprintf("%s \u2014 %s", spec$setting, spec$window),
+    truths = .spec_truths(spec)
+  )
+}
+
+convergence_df_voi <- function(spec, paths) {
+  arm_lab <- ifelse(spec$arm == "HS", "hSIR", "SIR")
+  win <- if ("window" %in% names(spec)) {
+    as.character(spec$window)
+  } else {
+    paste("Theta", spec$theta)
+  }
+  make_convergence_df(
+    paths,
+    sprintf("%s \u2014 %s", arm_lab, win),
+    truths = .spec_truths(spec)
+  )
+}
+
+convergence_df_npi <- function(spec, paths) {
+  lab <- sprintf(
+    "NPI \u2014 %g GI post-implementation, eff = %g%%",
+    spec$n_intervals, 100 * spec$eff
+  )
+  if ("cv" %in% names(spec)) lab <- sprintf("%s, cv = %g", lab, spec$cv)
+  make_convergence_df(paths, lab, truths = .spec_truths(spec))
+}
+
+convergence_df_fts <- function(files, grid_csv, r0_keep = 3) {
+  grid <- utils::read.csv(grid_csv, stringsAsFactors = FALSE)
+  ids <- as.integer(sub(
+    "^id", "",
+    regmatches(basename(files), regexpr("id[0-9]+", basename(files)))
+  ))
+  meta <- grid[match(ids, grid$id), , drop = FALSE]
+  ok <- !is.na(meta$id)
+  if (!is.null(r0_keep)) ok <- ok & meta$R0 %in% r0_keep
+  if (!any(ok)) stop("No FTS bundles matched the parameter grid.")
+  
+  speed_rank <- match(meta$param_combo_label[ok], c("slow", "reference", "fast"))
+  ord <- order(speed_rank, meta$cv[ok])
+  paths <- files[ok][ord]
+  meta_ok <- meta[ok, , drop = FALSE][ord, , drop = FALSE]
+  
+  make_convergence_df(
+    paths,
+    sprintf(
+      "%s (R0 = %g), cv = %g",
+      meta_ok$param_combo_label, meta_ok$R0, meta_ok$cv
+    ),
+    truths = .spec_truths(meta_ok)
+  )
+}
+
+make_convergence_gt <- function(df, title) {
+  parm_lab <- c(
+    beta = "\u03b2", gamma = "\u03b3", cv = "\u03bd",
+    R0 = "R\u2080", D = "D"
+  )
+  
+  df |>
+    dplyr::mutate(
+      parameter = dplyr::coalesce(parm_lab[variable], variable)
+    ) |>
+    dplyr::select(
+      fit, parameter, true, median, q2.5, q97.5,
+      rhat, ess_bulk, ess_tail
+    ) |>
+    gt::gt(groupname_col = "fit") |>
+    gt::cols_label(
+      parameter = "Parameter",
+      true = "True value",
+      median = "Median",
+      q2.5 = "2.5%",
+      q97.5 = "97.5%",
+      rhat = gt::html("R&#770;"),
+      ess_bulk = "Bulk ESS",
+      ess_tail = "Tail ESS"
+    ) |>
+    gt::tab_spanner(label = "95% CrI", columns = c(q2.5, q97.5)) |>
+    gt::fmt_number(
+      columns = c(true, median, q2.5, q97.5, rhat),
+      decimals = 3
+    ) |>
+    gt::fmt_number(
+      columns = c(ess_bulk, ess_tail),
+      decimals = 0, use_seps = TRUE
+    ) |>
+    gt::sub_missing(missing_text = "\u2014") |>
+    gt::tab_header(title = title) |>
+    gtExtras::gt_theme_nytimes()
+}
+
+save_gt_table <- function(tbl, path) {
+  dir.create(dirname(path), showWarnings = FALSE, recursive = TRUE)
+  gt::gtsave(tbl, path)
+  path
 }
