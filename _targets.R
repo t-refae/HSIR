@@ -652,7 +652,7 @@ list(
       title = NULL,
       fill_lab = "Peak incidence\n(SIR - hSIR)",
       midpoint = 0,
-      label_fun = scales::percent_format(accuracy = 1)
+      label_fun = scales::label_comma()
     )
   ),
   
@@ -662,7 +662,7 @@ list(
       df = npi_results_wide,
       z = "prop_S_end_diff",
       title = NULL,
-      fill_lab = "Proportion susceptible at NPI end\n(SIR - hSIR)",
+      fill_lab = "Proportion susceptible\nat NPI end (SIR - hSIR)",
       midpoint = 0,
       label_fun = scales::percent_format(accuracy = 1)
     )
@@ -842,8 +842,8 @@ list(
     save_ggplot_pdf(
       plot = fig_npi_marginal_value,
       path = file.path(manuscript_figures_dir, "Fig_NPI_marginal_value_per_day.pdf"),
-      width = 11,
-      height = 8
+      width = 14,
+      height = 6
     ),
     format = "file"
   ),
@@ -873,19 +873,66 @@ list(
         manuscript_figures_dir,
         "CV_posteriors_post_NPI_to_inform_release.pdf"
       ),
-      width = 6,
-      height = 9
+      width = 9,
+      height = 5
     ),
     format = "file"
   ),
 
   #### Supplementary figs ####
   
+  # HSIR selection visualisation
+  
+  tar_target(
+    hsir_selection_beta,
+    1.2
+  ),
+  
+  tar_target(
+    hsir_selection_gamma,
+    0.4
+  ),
+  
+  tar_target(
+    hsir_selection_df,
+    simulate_hsir_selection(
+      cv_values = c(0, 0.5, 1, 2),
+      beta = hsir_selection_beta,
+      gamma = hsir_selection_gamma
+    )
+  ),
+  
+  tar_target(
+    hsir_selection_plot,
+    plot_hsir_selection(
+      sim = hsir_selection_df,
+      beta = hsir_selection_beta,
+      gamma = hsir_selection_gamma
+    )
+  ),
+  
+  tar_target(
+    hsir_selection_pdf,
+    save_ggplot_pdf(
+      plot = hsir_selection_plot,
+      path = file.path(manuscript_figures_dir, "SI_Fig_selection_strength.pdf"),
+      width = 9,
+      height = 7
+    ),
+    format = "file"
+  ),
+  
   # infectious dynamics across settings 
+  tar_target(
+    I_dynamics_grid_csv,
+    "../HSIR_fitting/Data/parameter_grid.csv",
+    format = "file"
+  ),
+  
   tar_target(
     I_dynamics_df,
     make_I_dynamics_df(
-      grid_csv = FTS_grid_csv,
+      grid_csv = I_dynamics_grid_csv,
       population_size = 1e6,
       t_max = 800
     )
@@ -1041,7 +1088,8 @@ list(
         "SuppFig1_I_dynamics"      = I_dynamics_df,
         "SuppFig2_FTS_ridges"      = FTS_param_ridge_df,
         "SuppFig3_homog_truth"     = supp_fig3_source_df,
-        "SuppFig4_6_heatmaps"      = npi_results_wide
+        "SuppFig4_6_heatmaps"      = npi_results_wide,
+        "SuppFig7_selection"       = hsir_selection_df
       ),
       path = file.path("outputs", "Source_Data.xlsx")
     ),

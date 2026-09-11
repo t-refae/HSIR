@@ -336,7 +336,7 @@ plot_trajectory_panel <- function(combined_long, compartment, y_label,
       name   = "Susceptibility"
     ) +
     ggplot2::guides(colour = ggplot2::guide_legend(order = 1)) +
-    ggplot2::labs(x = "Time (Days)", y = y_label) +
+    ggplot2::labs(x = "Time (days)", y = y_label) +
     theme_fig1()
 }
 
@@ -391,7 +391,7 @@ plot_fit_to_data <- function(incidence_summary, observed_cases,
         override.aes = list(colour = "black")
       )
     ) +
-    ggplot2::labs(x = "Time (Days)", y = "Incidence") +
+    ggplot2::labs(x = "Time (days)", y = "Incidence") +
     theme_fig1()
 }
 
@@ -665,7 +665,7 @@ plot_fig3_S_minus_xstar <- function(fig3_df, theta_labels_named) {
       labels = scales::percent_format(accuracy = 1)
     ) +
     ggplot2::labs(
-      x = "Time (Days)",
+      x = "Time (days)",
       y = latex2exp::TeX("$S(t) - x^*$"),
       color = "Susceptibility",
       fill = "Susceptibility"
@@ -1178,7 +1178,7 @@ plot_npi_informing_cv_posteriors <- function(cv_draws_df) {
     ) +
     ggplot2::facet_wrap(
       ~ eff,
-      ncol = 1,
+      nrow = 1,
       labeller = ggplot2::as_labeller(
         c(
           `0.4` = "NPI eff = 0.4",
@@ -1186,12 +1186,11 @@ plot_npi_informing_cv_posteriors <- function(cv_draws_df) {
         )
       )
     ) +
+    ggplot2::coord_cartesian(xlim = c(0, 2)) +
     ggplot2::theme_minimal(base_size = 13) +
     ggplot2::labs(
       x = "Posterior CV",
-      y = "Observed window after NPI",
-      title = "Posterior distributions of heterogeneity (cv)",
-      subtitle = "Increasing post-NPI information (+ generation intervals)"
+      y = "Observed window after NPI"
     ) +
     ggplot2::theme(
       legend.position = "none",
@@ -1409,7 +1408,7 @@ plot_fig3_remaining_attack <- function(
       labels = scales::percent_format(accuracy = 1)
     ) +
     ggplot2::labs(
-      x = "Time (Days)",
+      x = "Time (days)",
       y = "Remaining attack rate (% of population)",
       color = "Susceptibility",
       fill = "Susceptibility"
@@ -1582,16 +1581,22 @@ plot_npi_remaining_by_model_grid <- function(
       panel.spacing = grid::unit(0.6, "lines"),
       panel.grid.minor = ggplot2::element_blank(),
       legend.position = "top",
-      legend.title = ggplot2::element_text(face = "bold")
+      legend.title = ggplot2::element_text(face = "bold"),
+      legend.key.width = grid::unit(2.2, "cm")
     ) +
     ggplot2::guides(
       color = ggplot2::guide_legend(
         order = 1, title.position = "top",
-        override.aes = list(linewidth = 1.1)
+        override.aes = list(linewidth = 1.1, linetype = "solid")
       ),
       linetype = ggplot2::guide_legend(
         order = 2, title.position = "top",
-        override.aes = list(linewidth = 0.9)
+        keywidth = grid::unit(2.2, "cm"),
+        override.aes = list(
+          linewidth = 1.1,
+          linetype = c("solid", "dashed"),
+          colour = "grey20"
+        )
       )
     )
 }
@@ -1649,15 +1654,19 @@ plot_npi_marginal_value <- function(
       model = factor(model, levels = c("homog", "HS"),
                      labels = c("Homogeneous", "Heterogeneous")),
       NPI_start_f = factor(NPI_start, levels = start_keep,
-                           labels = paste0("Start: day ", start_keep))
+                           labels = paste0("Start: day ", start_keep)),
+      eff_f = factor(
+        eff, levels = sort(unique(eff)),
+        labels = paste0(round(sort(unique(eff)) * 100), "%")
+      )
     )
   
   ggplot2::ggplot(
     df,
     ggplot2::aes(
       x = NPI_dur, y = marginal_value_per_day,
-      color = eff, linetype = model,
-      group = interaction(eff, model)
+      color = eff_f, linetype = model,
+      group = interaction(eff_f, model)
     )
   ) +
     ggplot2::geom_hline(
@@ -1666,7 +1675,7 @@ plot_npi_marginal_value <- function(
     ggplot2::geom_line(linewidth = 0.9) +
     ggplot2::facet_wrap(~ NPI_start_f) +
     ggplot2::coord_cartesian(xlim = c(0, dur_max_display)) +
-    ggplot2::scale_color_viridis_c(option = "plasma", end = 0.85, limits=c(0,1)) +
+    ggplot2::scale_color_viridis_d(option = "plasma", end = 0.85) +
     ggplot2::scale_linetype_manual(
       values = c("Homogeneous" = "solid", "Heterogeneous" = "dashed")
     ) +
@@ -1686,16 +1695,22 @@ plot_npi_marginal_value <- function(
       panel.spacing = grid::unit(0.6, "lines"),
       panel.grid.minor = ggplot2::element_blank(),
       legend.position = "top",
-      legend.title = ggplot2::element_text(face = "bold")
+      legend.title = ggplot2::element_text(face = "bold"),
+      legend.key.width = grid::unit(2.2, "cm")
     ) +
     ggplot2::guides(
-      color = ggplot2::guide_colorbar(
-        order = 1, title.position = "top", label.position = "bottom",
-        barwidth = grid::unit(3.5, "in"), barheight = grid::unit(0.18, "in")
+      color = ggplot2::guide_legend(
+        order = 1, title.position = "top",
+        override.aes = list(linewidth = 1.1, linetype = "solid")
       ),
       linetype = ggplot2::guide_legend(
         order = 2, title.position = "top",
-        override.aes = list(linewidth = 0.9)
+        keywidth = grid::unit(2.2, "cm"),
+        override.aes = list(
+          linewidth = 1.1,
+          linetype = c("solid", "dashed"),
+          colour = "grey20"
+        )
       )
     )
 }

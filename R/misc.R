@@ -1,3 +1,15 @@
+nu_palette <- function(
+    nu_levels,
+    palette_fun = function(n) viridisLite::mako(n, begin = 0.3, end = 0.7),
+    zero_colour = "grey40"
+) {
+  nu_levels <- as.character(nu_levels)
+  het <- nu_levels[nu_levels != "0"]
+  cols <- stats::setNames(as.character(palette_fun(length(het))), het)
+  if ("0" %in% nu_levels) cols <- c("0" = zero_colour, cols)
+  cols[nu_levels]
+}
+
 #### susceptibility contour plot ####
 hsir_hit <- function(R0, nu) {
   1 - R0^(-1 / (1 + nu^2))
@@ -103,7 +115,7 @@ plot_susceptibility_and_hit <- function(
     palette_fun = function(n) paletteer::paletteer_c("grDevices::ag_Sunset", n),
     palette_direction = -1,
     na_colour = NULL,
-    fill_lab = "Mean susceptibility",
+    fill_lab = "Mean\nsusceptibility",
     contour_colour = "black",
     label_fill = "white",
     label_alpha = 0.85,
@@ -123,16 +135,26 @@ plot_susceptibility_and_hit <- function(
       label = "\u03bd = 0 (SIR)", hjust = 0, colour = "grey40", size = 3.5
     ) +
     ggplot2::coord_cartesian(ylim = c(0, 2)) +
-    ggplot2::scale_colour_viridis_d(
-      option = "cividis", end = 0.85,
+    ggplot2::scale_colour_manual(
+      values = nu_palette(levels(dist_df$nu)),
       labels = function(l) paste0("\u03bd = ", l)
     ) +
+    ggplot2::guides(colour = ggplot2::guide_legend(reverse = TRUE)) +
     ggplot2::labs(
       x = "Relative susceptibility to infection",
       y = "Density", colour = NULL, tag = "a"
     ) +
     ggplot2::theme_minimal(base_size = 12) +
-    ggplot2::theme(legend.position = "top")
+    ggplot2::theme(
+      legend.position = "inside",
+      legend.position.inside = c(0.98, 0.98),
+      legend.justification = c(1, 1),
+      legend.background = ggplot2::element_rect(
+        fill = ggplot2::alpha("white", 0.75), colour = NA
+      ),
+      legend.key.height = grid::unit(0.9, "lines"),
+      legend.margin = ggplot2::margin(2, 4, 2, 4)
+    )
   
   fill_scale <- make_binned_fill(
     breaks = breaks,
@@ -163,7 +185,7 @@ plot_susceptibility_and_hit <- function(
     ggplot2::labs(
       x = "Proportion of the population infected",
       y = expression("Coefficient of variation," ~ nu),
-      fill = "Mean susceptibility",
+      fill = "Mean\nsusceptibility",
       tag = "b"
     ) +
     ggplot2::coord_cartesian(
@@ -251,6 +273,125 @@ plot_I_dynamics <- function(traj, base_size = 9) {
       legend.position = "right",
       axis.title.y = ggplot2::element_text(angle = 0, vjust = 0.5)
     )
+}
+
+#### Supplementary figure: strength of selection by infection ####
+
+simulate_hsir_selection <- function(
+    cv_values = c(0, 0.5, 1, 2),
+    beta = 1.2,
+    gamma = 0.4,
+    i0 = 1e-4,
+    times = seq(0, 400, by = 0.1)
+) {
+  R0 <- beta / gamma
+  
+  rhs <- function(t, y, p) {
+    with(as.list(c(y, p)), {
+      foi <- beta * I * S^(cv^2)
+      list(c(S = -foi * S, I = foi * S - gamma * I))
+    })
+  }
+  
+  purrr::map_dfr(cv_values, function(cv) {
+    out <- as.data.frame(deSolve::ode(
+      y = c(S = 1 - i0, I = i0),
+      times = times,
+      func = rhs,
+      parms = c(beta = beta, gamma = gamma, cv = cv),
+      method = "lsoda"
+    ))
+    out$cv <- cv
+    out$Re <- R0 * out$S^(1 + cv^2)
+    out$dRe_dS <- R0 * (1 + cv^2) * out$S^(cv^2)
+    out$amp <- (1 + cv^2) * out$S^(cv^2)
+    out$Var <- cv^2 * out$S^(2 * cv^2)
+    out
+  }) |>
+    dplyr::mutate(cvf = factor(cv, levels = sort(unique(cv_values))))
+}
+
+plot_hsir_selection <- function(
+    sim,
+    beta = 1.2,
+    gamma = 0.4,
+    x_max_display = 50,
+    base_size = 9
+) {
+  R0 <- beta / gamma
+  het <- dplyr::filter(sim, cv > 0)
+  
+  het_levels <- levels(droplevels(het$cvf))
+  het_levels <- levels(droplevels(het$cvf))
+  palf <- nu_palette(levels(sim$cvf))
+  pal <- palf[het_levels]
+  
+  ltys <- stats::setNames(
+    c("dashed", rep("solid", length(het_levels))),
+    levels(sim$cvf)
+  )
+  
+  ends <- het |>
+    dplyr::group_by(cv, cvf) |>
+    dplyr::slice_tail(n = 1) |>
+    dplyr::ungroup()
+  
+  sel_theme <- list(
+    ggplot2::scale_x_reverse(),
+    ggplot2::scale_colour_manual(values = pal, name = expression(nu)),
+    ggplot2::theme_minimal(base_size = base_size),
+    ggplot2::theme(
+      panel.grid.minor = ggplot2::element_blank(),
+      legend.position = "none"
+    )
+  )
+  end_pts <- ggplot2::geom_point(
+    data = ends, shape = 21, fill = "white", size = 2.2, stroke = 0.8
+  )
+  
+  p_S <- ggplot2::ggplot(sim, ggplot2::aes(time, S, colour = cvf, linetype = cvf)) +
+    ggplot2::geom_line(linewidth = 0.9) +
+    ggplot2::scale_colour_manual(values = palf, name = expression(nu)) +
+    ggplot2::scale_linetype_manual(values = ltys, name = expression(nu)) +
+    ggplot2::coord_cartesian(xlim = c(0, x_max_display), ylim = c(0, 1)) +
+    ggplot2::labs(x = "Time (days)", y = "S(t)", tag = "a") +
+    ggplot2::guides(
+      colour = ggplot2::guide_legend(reverse = TRUE),
+      linetype = ggplot2::guide_legend(reverse = TRUE)
+    ) +
+    ggplot2::theme_minimal(base_size = base_size) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank())
+  
+  p_A <- ggplot2::ggplot(het, ggplot2::aes(S, dRe_dS, colour = cvf)) +
+    ggplot2::geom_hline(yintercept = R0, linetype = "dashed", linewidth = 0.5) +
+    ggplot2::geom_line(linewidth = 0.9) + end_pts + sel_theme +
+    ggplot2::labs(
+      x = "S (epidemic progress \u2192)",
+      y = expression(d*R[e]/d*S),
+      tag = "b"
+    )
+  
+  p_B <- ggplot2::ggplot(het, ggplot2::aes(S, amp, colour = cvf)) +
+    ggplot2::geom_hline(yintercept = 1, linetype = "dashed", linewidth = 0.5) +
+    ggplot2::geom_line(linewidth = 0.9) + end_pts + sel_theme +
+    ggplot2::labs(
+      x = "S (epidemic progress \u2192)",
+      y = expression((1 + nu^2) * S^{nu^2}),
+      tag = "c"
+    )
+  
+  p_V <- ggplot2::ggplot(het, ggplot2::aes(S, Var, colour = cvf)) +
+    ggplot2::geom_line(linewidth = 0.9) + end_pts + sel_theme +
+    ggplot2::labs(
+      x = "S (epidemic progress \u2192)",
+      y = expression(nu^2 * S^{2 * nu^2}),
+      tag = "d"
+    )
+  
+  top <- patchwork::plot_spacer() + p_S + patchwork::plot_spacer() +
+    patchwork::plot_layout(widths = c(1, 5, 1))
+  
+  top / (p_A | p_B | p_V) + patchwork::plot_layout(heights = c(1, 1.18))
 }
 #### Supporting tables (Excel export) ####
 
