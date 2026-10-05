@@ -550,6 +550,11 @@ list(
   #### NPI policy simulations using posterior median fitted parameters ####
   
   tar_target(
+    npi_hsir_label,
+    sprintf("\u03bd = %.3f", VOI_HS_medians$cv[[1]])
+  ),
+  
+  tar_target(
     npi_complete_theta,
     4
   ),
@@ -571,7 +576,7 @@ list(
   
   tar_target(
     npi_eff_seq,
-    seq(0, 0.9, by = 0.05)
+    seq(0, 1, by = 0.05)
   ),
   
   tar_target(
@@ -719,7 +724,10 @@ list(
   
   tar_target(
     p_tradeoff_grid,
-    plot_npi_tradeoff_grid(npi_tradeoff_grid_df)
+    plot_npi_tradeoff_grid(
+      npi_tradeoff_grid_df,
+      hsir_label = npi_hsir_label
+      )
   ),
   
   tar_target(
@@ -772,7 +780,8 @@ list(
       start_keep = npi_tradeoff_start_keep,
       dur_keep = npi_tradeoff_dur_keep,
       eff_keep = npi_remaining_eff_seq,
-      x_max_display = 200
+      x_max_display = 200,
+      hsir_label = npi_hsir_label
     )
   ),
   
@@ -833,7 +842,8 @@ list(
     plot_npi_marginal_value(
       marginal_df = npi_mv_df,
       start_keep = npi_tradeoff_start_keep,
-      dur_max_display = 150
+      dur_max_display = 150,
+      hsir_label = npi_hsir_label
     )
   ),
   
@@ -842,8 +852,8 @@ list(
     save_ggplot_pdf(
       plot = fig_npi_marginal_value,
       path = file.path(manuscript_figures_dir, "Fig_NPI_marginal_value_per_day.pdf"),
-      width = 14,
-      height = 6
+      width = 10,
+      height = 5
     ),
     format = "file"
   ),

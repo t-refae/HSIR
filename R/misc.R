@@ -132,7 +132,7 @@ plot_susceptibility_and_hit <- function(
     ggplot2::geom_line(linewidth = 1.1) +
     ggplot2::annotate(
       "text", x = 1.05, y = 1.9,
-      label = "\u03bd = 0 (SIR)", hjust = 0, colour = "grey40", size = 3.5
+      label = "\u03bd = 0", hjust = 0, colour = "grey40", size = 3.5
     ) +
     ggplot2::coord_cartesian(ylim = c(0, 2)) +
     ggplot2::scale_colour_manual(
@@ -182,9 +182,12 @@ plot_susceptibility_and_hit <- function(
       breaks = seq(0, q_max, by = 0.1),
       labels = scales::percent
     ) +
+    ggplot2::scale_y_continuous(
+      breaks = seq(0, nu_max, by=0.5)
+    ) +
     ggplot2::labs(
-      x = "Proportion of the population infected",
-      y = expression("Coefficient of variation," ~ nu),
+      x = "Proportion of the population already infected",
+      y = bquote("Coefficient of variation (" * nu * ")"),
       fill = "Mean\nsusceptibility",
       tag = "b"
     ) +
@@ -253,7 +256,7 @@ make_I_dynamics_df <- function(
   traj
 }
 
-plot_I_dynamics <- function(traj, base_size = 9) {
+plot_I_dynamics <- function(traj, base_size = 13) {
   ggplot2::ggplot(traj, ggplot2::aes(time, I, colour = cv)) +
     ggplot2::geom_line(linewidth = 0.7) +
     ggplot2::facet_grid(
@@ -281,7 +284,7 @@ simulate_hsir_selection <- function(
     cv_values = c(0, 0.5, 1, 2),
     beta = 1.2,
     gamma = 0.4,
-    i0 = 1e-4,
+    i0 = 1e-6,
     times = seq(0, 400, by = 0.1)
 ) {
   R0 <- beta / gamma

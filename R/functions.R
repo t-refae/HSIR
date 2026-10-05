@@ -221,7 +221,7 @@ plot_dynamic_speed_cv_density_matrix <- function(cv_draws_df, true_cv_df) {
       name = NULL
     ) +
     ggplot2::labs(
-      x = "CV Value",
+      x = bquote("Coefficient of variation (" * nu * ")"),
       y = "Density"
     ) +
     ggplot2::theme_minimal() +
@@ -272,7 +272,8 @@ plot_dynamic_speed_cv_ridges_by_window <- function(cv_ridge_df) {
     ggridges::geom_density_ridges_gradient(
       scale = 3,
       rel_min_height = 0.01,
-      color = "white"
+      color = "white",
+      from=0
     ) +
     ggplot2::geom_vline(
       xintercept = 1,
@@ -291,7 +292,7 @@ plot_dynamic_speed_cv_ridges_by_window <- function(cv_ridge_df) {
       name = NULL
     ) +
     ggplot2::labs(
-      x = "CV value",
+      x = bquote("Coefficient of variation (" * nu * ")"),
       y = NULL
     ) +
     ggplot2::theme_minimal(base_size = 14) +
@@ -311,6 +312,15 @@ susceptibility_palette <- c(
   "Heterogeneous" = "#ff7f0e"
 )
 
+model_legend_title <- "Model"
+
+model_labels <- function(hsir = "\u03bd = 1") {
+  c(
+    "Homogeneous"   = "SIR (\u03bd = 0)",
+    "Heterogeneous" = sprintf("hSIR (%s)", hsir)
+  )
+}
+
 theme_fig1 <- function(base_size = 11) {
   ggplot2::theme_minimal(base_size = base_size) +
     ggplot2::theme(
@@ -324,7 +334,8 @@ theme_fig1 <- function(base_size = 11) {
 }
 
 plot_trajectory_panel <- function(combined_long, compartment, y_label,
-                                  palette = susceptibility_palette) {
+                                  palette = susceptibility_palette,
+                                  hsir_label = "\u03bd = 1") {
   ggplot2::ggplot(
     dplyr::filter(combined_long, Compartment == compartment),
     ggplot2::aes(x = time, y = Value, colour = susceptibility)
@@ -333,7 +344,8 @@ plot_trajectory_panel <- function(combined_long, compartment, y_label,
     ggplot2::scale_colour_manual(
       values = palette,
       limits = names(palette),
-      name   = "Susceptibility"
+      labels = model_labels(hsir_label),
+      name   = model_legend_title
     ) +
     ggplot2::guides(colour = ggplot2::guide_legend(order = 1)) +
     ggplot2::labs(x = "Time (days)", y = y_label) +
@@ -343,7 +355,7 @@ plot_trajectory_panel <- function(combined_long, compartment, y_label,
 plot_fit_to_data <- function(incidence_summary, observed_cases,
                              fit_label, data_label,
                              palette = susceptibility_palette) {
-  glyph_levels <- c("data", "model fit")
+  glyph_levels <- c("Simulated data", "Model fit")
   
   ggplot2::ggplot() +
     ggplot2::geom_ribbon(
@@ -353,12 +365,12 @@ plot_fit_to_data <- function(incidence_summary, observed_cases,
     ) +
     ggplot2::geom_line(
       data = incidence_summary,
-      ggplot2::aes(x = Day, y = Median, colour = fit_label, linetype = "model fit"),
+      ggplot2::aes(x = Day, y = Median, colour = fit_label, linetype = "Model fit"),
       linewidth = 1
     ) +
     ggplot2::geom_point(
       data = observed_cases,
-      ggplot2::aes(x = Day, y = Data, colour = data_label, shape = "data"),
+      ggplot2::aes(x = Day, y = Data, colour = data_label, shape = "Simulated data"),
       size = 2
     ) +
     ggplot2::scale_colour_manual(
@@ -373,12 +385,12 @@ plot_fit_to_data <- function(incidence_summary, observed_cases,
     ) +
     ggplot2::scale_shape_manual(
       name   = "Data type",
-      values = c("data" = 16, "model fit" = NA),
+      values = c("Simulated data" = 16, "Model fit" = NA),
       limits = glyph_levels
     ) +
     ggplot2::scale_linetype_manual(
       name   = "Data type",
-      values = c("data" = "blank", "model fit" = "solid"),
+      values = c("Simulated data" = "blank", "Model fit" = "solid"),
       limits = glyph_levels
     ) +
     ggplot2::guides(
@@ -861,6 +873,30 @@ simulate_npi_policy_grid <- function(
         dplyr::mutate(model = model)
     }
   )
+  
+  # results <- vector("list", nrow(policy_grid))
+  # 
+  # for (i in seq_len(nrow(policy_grid))) {
+  #   eff       <- policy_grid$eff[i]
+  #   NPI_start <- policy_grid$NPI_start[i]
+  #   NPI_dur   <- policy_grid$NPI_dur[i]
+  #   
+  #   results[[i]] <- simulate_policy_metrics(
+  #     model = model,
+  #     eff = eff,
+  #     NPI_start = NPI_start,
+  #     NPI_dur = NPI_dur,
+  #     beta = beta,
+  #     gamma = gamma,
+  #     cv = cv,
+  #     t_max = t_max,
+  #     population_size = population_size,
+  #     i0_prop = i0_prop
+  #   ) |>
+  #     dplyr::mutate(model = model)
+  # }
+  # 
+  # results_df <- dplyr::bind_rows(results)
 }
 
 make_npi_results_wide <- function(results_all) {
@@ -926,7 +962,7 @@ plot_npi_heatmap <- function(
     ggplot2::geom_tile() +
     ggplot2::facet_wrap(
       ~ NPI_dur,
-      labeller = ggplot2::label_both
+      labeller = ggplot2::as_labeller(function(x) paste0("Duration: ", x, " days"))
     ) +
     ggplot2::scale_fill_gradient2(
       low = div_cols[1],
@@ -937,8 +973,8 @@ plot_npi_heatmap <- function(
     ) +
     ggplot2::labs(
       title = title,
-      x = "NPI Start Day",
-      y = "NPI Effectiveness",
+      x = "NPI start day",
+      y = "NPI effectiveness",
       fill = fill_lab
     ) +
     theme_npi_heat()
@@ -963,104 +999,277 @@ make_npi_tradeoff_grid_df <- function(
       NPI_dur = factor(
         NPI_dur,
         levels = dur_keep,
-        labels = c(paste0("Duration (days): ", dur_keep[1]), as.character(dur_keep[-1]))
+        labels = paste0("Duration: ", dur_keep, " days")
       ),
       NPI_start = factor(
         NPI_start,
         levels = start_keep,
-        labels = c(paste0("Start day: ", start_keep[1]), as.character(start_keep[-1]))
+        labels = paste0("Start: day ", start_keep)
       )
     )
 }
 
-plot_npi_tradeoff_grid <- function(df_tradeoff_grid) {
-  ggplot2::ggplot(
-    df_tradeoff_grid,
-    ggplot2::aes(
-      x = prop_S_end,
-      y = attack_rate,
-      color = eff,
-      shape = model
+## circles/triangles w/ NPI effectiveness gradient (OLD)
+# plot_npi_tradeoff_grid <- function(df_tradeoff_grid, hsir_label) {
+#   ggplot2::ggplot(
+#     df_tradeoff_grid %>% filter(eff <= 0.9),
+#     ggplot2::aes(
+#       x = prop_S_end,
+#       y = attack_rate,
+#       color = eff,
+#       shape = model
+#     )
+#   ) +
+#     ggplot2::geom_point(size = 2.8, stroke = 1.1, alpha = 0.95) +
+#     ggplot2::facet_grid(
+#       rows = ggplot2::vars(NPI_start),
+#       cols = ggplot2::vars(NPI_dur)
+#     ) +
+#     ggplot2::scale_color_viridis_c(
+#       option = "plasma",
+#       end = 0.85,
+#       limits = c(0, 1),
+#       labels = scales::percent_format(accuracy = 1)
+#     ) +
+#     ggplot2::scale_shape_manual(
+#       values = c("Homogeneous" = 16, "Heterogeneous" = 17),
+#       labels = model_labels(hsir_label)
+#     ) +
+#     ggplot2::scale_x_continuous(
+#       limits = c(0, 1),
+#       breaks = seq(0, 1, by = 0.25),
+#       labels = scales::percent_format(accuracy = 1)
+#     ) +
+#     # ggplot2::scale_x_log10(
+#     #   breaks = c(0.003, 0.01, 0.03, 0.1, 0.3, 1),
+#     #   labels = scales::percent_format()
+#     # ) +
+#     ggplot2::scale_y_continuous(
+#       limits = c(0,1),
+#       labels = scales::percent_format(accuracy = 1)
+#     ) +
+#     ggplot2::labs(
+#       x = "Proportion susceptible at NPI end",
+#       y = "Final epidemic size",
+#       color = "NPI effectiveness",
+#       shape = model_legend_title
+#     ) +
+#     ggplot2::theme_minimal(base_size = 13) +
+#     ggplot2::theme(
+#       strip.placement = "outside",
+#       strip.text.x = ggplot2::element_text(face = "bold"),
+#       strip.text.y.right = ggplot2::element_text(face = "bold", angle = 270),
+#       strip.text.y.left = ggplot2::element_blank(),
+#       strip.background.y.left = ggplot2::element_blank(),
+#       panel.border = ggplot2::element_rect(
+#         color = "grey40",
+#         fill = NA,
+#         linewidth = 0.6
+#       ),
+#       panel.spacing = grid::unit(0.6, "lines"),
+#       panel.grid.major.y = ggplot2::element_line(
+#         color = "grey85",
+#         linewidth = 0.4
+#       ),
+#       panel.grid.major.x = ggplot2::element_line(
+#         color = "grey90",
+#         linewidth = 0.3
+#       ),
+#       legend.position = "top",
+#       legend.box = "horizontal",
+#       legend.direction = "horizontal",
+#       legend.title = ggplot2::element_text(face = "bold"),
+#       legend.margin = ggplot2::margin(b = 6),
+#       legend.spacing.x = grid::unit(14, "pt")
+#     ) +
+#     ggplot2::guides(
+#       color = ggplot2::guide_colorbar(
+#         order = 1,
+#         direction = "horizontal",
+#         title.position = "top",
+#         label.position = "bottom",
+#         barwidth = grid::unit(3.5, "in"),
+#         barheight = grid::unit(0.18, "in")
+#       ),
+#       shape = ggplot2::guide_legend(
+#         order = 2,
+#         direction = "horizontal",
+#         title.position = "top",
+#         label.position = "right",
+#         nrow = 1,
+#         byrow = TRUE,
+#         override.aes = list(size = 3, alpha = 1)
+#       )
+#     )
+# }
+
+plot_npi_tradeoff_grid <- function(df_tradeoff_grid, hsir_label = "\u03bd = 1") {
+  quantity_labels <- c(
+    attack_rate = "Final epidemic size",
+    prop_S_end  = "Proportion susceptible at NPI end"
+  )
+
+  df <- df_tradeoff_grid |>
+    dplyr::select(model, NPI_start, NPI_dur, eff, attack_rate, prop_S_end) |>
+    tidyr::pivot_longer(
+      c(attack_rate, prop_S_end),
+      names_to = "quantity", values_to = "value"
+    ) |>
+    dplyr::mutate(
+      quantity = factor(quantity, levels = names(quantity_labels), labels = quantity_labels)
     )
+
+  minima <- df_tradeoff_grid |>
+    dplyr::group_by(model, NPI_start, NPI_dur) |>
+    dplyr::slice_min(attack_rate, n = 1, with_ties = FALSE) |>
+    dplyr::ungroup()
+
+  ggplot2::ggplot(
+    df,
+    ggplot2::aes(x = eff, y = value, colour = model, linetype = quantity)
   ) +
-    ggplot2::geom_point(size = 2.7, alpha = 0.95) +
+    ggplot2::geom_line(linewidth = 0.9) +
+    ggplot2::geom_point(
+      data = minima,
+      ggplot2::aes(x = eff, y = attack_rate, colour = model),
+      inherit.aes = FALSE,
+      shape = 21, fill = "white", size = 2.6, stroke = 1.1
+    ) +
     ggplot2::facet_grid(
       rows = ggplot2::vars(NPI_start),
       cols = ggplot2::vars(NPI_dur)
     ) +
-    ggplot2::scale_color_viridis_c(
-      option = "plasma",
-      end = 0.85,
-      limits = c(0, 1),
-      labels = scales::percent_format(accuracy = 1)
+    ggplot2::scale_colour_manual(
+      values = c("Homogeneous" = "#1f77b4", "Heterogeneous" = "#ff7f0e"),
+      labels = model_labels(hsir_label)
     ) +
-    ggplot2::scale_shape_manual(
-      values = c(
-        "Homogeneous" = 16,
-        "Heterogeneous" = 17
-      )
+    ggplot2::scale_linetype_manual(
+      values = stats::setNames(c("solid", "dotted"), quantity_labels)
     ) +
     ggplot2::scale_x_continuous(
-      limits = c(0, 1),
-      breaks = seq(0, 1, by = 0.25),
+      limits = c(0, 1), breaks = seq(0, 1, by = 0.25),
       labels = scales::percent_format(accuracy = 1)
     ) +
     ggplot2::scale_y_continuous(
-      limits = c(0,1),
+      limits = c(0, 1), breaks = seq(0, 1, by = 0.25),
       labels = scales::percent_format(accuracy = 1)
     ) +
     ggplot2::labs(
-      x = "Proportion susceptible at NPI end",
-      y = "Final attack rate",
-      color = "NPI effectiveness",
-      shape = "Susceptibility type"
+      x = "NPI effectiveness",
+      y = "Proportion of population",
+      colour = model_legend_title,
+      linetype = NULL
     ) +
-    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme_minimal(base_size = 12) +
     ggplot2::theme(
-      strip.placement = "outside",
       strip.text.x = ggplot2::element_text(face = "bold"),
       strip.text.y.right = ggplot2::element_text(face = "bold", angle = 270),
-      strip.text.y.left = ggplot2::element_blank(),
-      strip.background.y.left = ggplot2::element_blank(),
-      panel.border = ggplot2::element_rect(
-        color = "grey40",
-        fill = NA,
-        linewidth = 0.6
-      ),
+      panel.border = ggplot2::element_rect(colour = "grey40", fill = NA, linewidth = 0.6),
       panel.spacing = grid::unit(0.6, "lines"),
-      panel.grid.major.y = ggplot2::element_line(
-        color = "grey85",
-        linewidth = 0.4
-      ),
-      panel.grid.major.x = ggplot2::element_line(
-        color = "grey90",
-        linewidth = 0.3
-      ),
+      panel.grid.minor = ggplot2::element_blank(),
       legend.position = "top",
       legend.box = "horizontal",
-      legend.direction = "horizontal",
       legend.title = ggplot2::element_text(face = "bold"),
-      legend.margin = ggplot2::margin(b = 6),
-      legend.spacing.x = grid::unit(14, "pt")
+      legend.spacing.x = grid::unit(14, "pt"),
+      legend.key.width = grid::unit(1.8, "cm")
     ) +
     ggplot2::guides(
-      color = ggplot2::guide_colorbar(
-        order = 1,
-        direction = "horizontal",
-        title.position = "top",
-        label.position = "bottom",
-        barwidth = grid::unit(3.5, "in"),
-        barheight = grid::unit(0.18, "in")
+      colour = ggplot2::guide_legend(
+        order = 1, title.position = "top", nrow = 1,
+        override.aes = list(linewidth = 1.2, linetype = "solid")
       ),
-      shape = ggplot2::guide_legend(
-        order = 2,
-        direction = "horizontal",
-        title.position = "top",
-        label.position = "right",
-        nrow = 1,
-        byrow = TRUE,
-        override.aes = list(size = 3, alpha = 1)
+      linetype = ggplot2::guide_legend(
+        order = 2, title.position = "top", nrow = 1,
+        override.aes = list(colour = "grey20", linewidth = 0.9)
       )
+    )
+}
+
+plot_npi_tradeoff_ratio <- function(
+    df_tradeoff_grid,
+    hsir_label = "\u03bd = 1",
+    ratio = c("model", "quantity")
+) {
+  ratio <- match.arg(ratio)
+  quantity_labels <- c(
+    attack_rate = "Final epidemic size",
+    prop_S_end  = "Proportion susceptible at NPI end"
+  )
+  base <- dplyr::select(
+    df_tradeoff_grid, model, NPI_start, NPI_dur, eff, attack_rate, prop_S_end
+  )
+  
+  if (ratio == "model") {
+    df <- base |>
+      tidyr::pivot_longer(
+        c(attack_rate, prop_S_end), names_to = "quantity", values_to = "value"
+      ) |>
+      tidyr::pivot_wider(names_from = model, values_from = value) |>
+      dplyr::mutate(
+        ratio = Homogeneous / Heterogeneous,
+        quantity = factor(quantity, levels = names(quantity_labels), labels = quantity_labels)
+      )
+    p <- ggplot2::ggplot(df, ggplot2::aes(x = eff, y = ratio, linetype = quantity)) +
+      ggplot2::geom_line(linewidth = 0.9, colour = "grey20") +
+      ggplot2::scale_linetype_manual(
+        values = stats::setNames(c("solid", "dotted"), quantity_labels)
+      ) +
+      ggplot2::labs(
+        y = sprintf("Ratio, SIR (\u03bd = 0) / hSIR (%s)", hsir_label),
+        linetype = NULL
+      ) +
+      ggplot2::guides(
+        linetype = ggplot2::guide_legend(
+          title.position = "top", nrow = 1,
+          override.aes = list(colour = "grey20", linewidth = 0.9)
+        )
+      )
+  } else {
+    df <- dplyr::mutate(base, ratio = (1-attack_rate) / prop_S_end)
+    p <- ggplot2::ggplot(df, ggplot2::aes(x = eff, y = ratio, colour = model)) +
+      ggplot2::geom_line(linewidth = 0.9) +
+      ggplot2::scale_colour_manual(
+        values = c("Homogeneous" = "#1f77b4", "Heterogeneous" = "#ff7f0e"),
+        labels = model_labels(hsir_label)
+      ) +
+      ggplot2::labs(
+        y = "(1 - Final epidemic size) / proportion susceptible at NPI end",
+        colour = model_legend_title
+      ) +
+      ggplot2::guides(
+        colour = ggplot2::guide_legend(
+          title.position = "top", nrow = 1,
+          override.aes = list(linewidth = 1.2)
+        )
+      )
+  }
+  
+  p +
+    ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey55", linewidth = 0.5) +
+    ggplot2::facet_grid(
+      rows = ggplot2::vars(NPI_start),
+      cols = ggplot2::vars(NPI_dur)
+    ) +
+    ggplot2::scale_x_continuous(
+      limits = c(0, 1), breaks = seq(0, 1, by = 0.25),
+      labels = scales::percent_format(accuracy = 1)
+    ) +
+    ggplot2::scale_y_continuous(
+      trans = "log2",
+      breaks = c(0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 8),
+      labels = function(x) sprintf("%g\u00d7", x)
+    ) +
+    ggplot2::labs(x = "NPI effectiveness") +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(
+      strip.text.x = ggplot2::element_text(face = "bold"),
+      strip.text.y.right = ggplot2::element_text(face = "bold", angle = 270),
+      panel.border = ggplot2::element_rect(colour = "grey40", fill = NA, linewidth = 0.6),
+      panel.spacing = grid::unit(0.6, "lines"),
+      panel.grid.minor = ggplot2::element_blank(),
+      legend.position = "top",
+      legend.title = ggplot2::element_text(face = "bold"),
+      legend.key.width = grid::unit(1.8, "cm")
     )
 }
 
@@ -1152,8 +1361,8 @@ plot_npi_informing_cv_posteriors <- function(cv_draws_df) {
     dplyr::mutate(
       GI = factor(
         GI,
-        levels = 0:3,
-        labels = c("+0 GI", "+1 GI", "+2 GI", "+3 GI")
+        levels = rev(0:3),
+        labels = rev(c("+0 GI", "+1 GI", "+2 GI", "+3 GI"))
       ),
       eff = factor(eff)
     ) |>
@@ -1168,7 +1377,8 @@ plot_npi_informing_cv_posteriors <- function(cv_draws_df) {
       alpha = 0.6,
       scale = 1.1,
       rel_min_height = 0.01,
-      panel_scaling = FALSE
+      panel_scaling = FALSE,
+      from=0
     ) +
     ggplot2::geom_vline(
       xintercept = 1,
@@ -1181,16 +1391,16 @@ plot_npi_informing_cv_posteriors <- function(cv_draws_df) {
       nrow = 1,
       labeller = ggplot2::as_labeller(
         c(
-          `0.4` = "NPI eff = 0.4",
-          `0.8` = "NPI eff = 0.8"
+          `0.4` = "NPI effectiveness = 0.4",
+          `0.8` = "NPI effectiveness = 0.8"
         )
       )
     ) +
     ggplot2::coord_cartesian(xlim = c(0, 2)) +
     ggplot2::theme_minimal(base_size = 13) +
     ggplot2::labs(
-      x = "Posterior CV",
-      y = "Observed window after NPI"
+      x = bquote("Coefficient of variation (" * nu * ")"),
+      y = "Observed window after NPI start"
     ) +
     ggplot2::theme(
       legend.position = "none",
@@ -1221,7 +1431,7 @@ param_ridge_plot <- function(bundles, files, param) {
     ggplot2::theme_minimal(base_size = 11)
 }
 
-#### Alternative Fig. 3: remaining attack rate (unmitigated remaining burden) ####
+#### Alternative Fig. 3: remaining epidemic size (unmitigated remaining burden) ####
 
 extract_state_draws_matrix <- function(y_draws, state_index) {
   var_names <- dimnames(y_draws)[[3]]
@@ -1380,7 +1590,8 @@ make_fig3_remaining_df <- function(remaining_HS, remaining_Homog) {
 plot_fig3_remaining_attack <- function(
     fig3_df,
     theta_labels_named,
-    true_df = NULL
+    true_df = NULL,
+    hsir_label = "\u03bd estimated"
 ) {
   fig3_df <- fig3_df |>
     dplyr::mutate(theta = factor(theta, levels = names(theta_labels_named)))
@@ -1399,19 +1610,21 @@ plot_fig3_remaining_attack <- function(
       labeller = ggplot2::as_labeller(theta_labels_named)
     ) +
     ggplot2::scale_color_manual(
-      values = c("Homogeneous" = "#1f77b4", "Heterogeneous" = "#ff7f0e")
+      values = c("Homogeneous" = "#1f77b4", "Heterogeneous" = "#ff7f0e"),
+      labels = model_labels(hsir_label)
     ) +
     ggplot2::scale_fill_manual(
-      values = c("Homogeneous" = "#1f77b4", "Heterogeneous" = "#ff7f0e")
+      values = c("Homogeneous" = "#1f77b4", "Heterogeneous" = "#ff7f0e"),
+      labels = model_labels(hsir_label)
     ) +
     ggplot2::scale_y_continuous(
       labels = scales::percent_format(accuracy = 1)
     ) +
     ggplot2::labs(
       x = "Time (days)",
-      y = "Remaining attack rate (% of population)",
-      color = "Susceptibility",
-      fill = "Susceptibility"
+      y = "Remaining epidemic size (% of population)",
+      color = model_legend_title,
+      fill = model_legend_title
     ) +
     ggplot2::theme_minimal(base_size = 12) +
     ggplot2::theme(
@@ -1444,7 +1657,7 @@ plot_fig3_remaining_attack <- function(
   p
 }
 
-#### Alternative Fig. 4: continuous delta in remaining attack rate over time ####
+#### Alternative Fig. 4: continuous delta in remaining epidemic size over time ####
 
 simulate_policy_remaining <- function(
     model = c("HS", "homog"),
@@ -1478,7 +1691,7 @@ simulate_policy_remaining <- function(
   ) |>
     as.data.frame()
   
-  S_inf <- traj$S[nrow(traj)]        # final size under THIS policy
+  S_inf <- traj$S[nrow(traj)]        # final size under this policy
   denom <- traj$S[1] - S_inf         # eventual total epidemic size for this policy
   if (denom <= denom_floor) denom <- NA_real_
   
@@ -1516,7 +1729,8 @@ plot_npi_remaining_by_model_grid <- function(
     start_keep = c(5, 10, 15, 20),
     dur_keep = c(30, 60, 90),
     eff_keep = c(0.25, 0.5, 0.75),
-    x_max_display = 200
+    x_max_display = 200,
+    hsir_label = "\u03bd = 1"
 ) {
   df <- remaining_grid |>
     dplyr::filter(
@@ -1536,7 +1750,7 @@ plot_npi_remaining_by_model_grid <- function(
       NPI_start_f = factor(NPI_start, levels = start_keep,
                            labels = paste0("Start: day ", start_keep)),
       NPI_dur_f = factor(NPI_dur, levels = dur_keep,
-                         labels = paste0("Duration: ", dur_keep, "d"))
+                         labels = paste0("Duration: ", dur_keep, " days"))
     )
   
   windows <- df |>
@@ -1564,14 +1778,15 @@ plot_npi_remaining_by_model_grid <- function(
     ggplot2::coord_cartesian(xlim = c(0, x_max_display)) +
     ggplot2::scale_color_viridis_d(option = "plasma", end = 0.85) +
     ggplot2::scale_linetype_manual(
-      values = c("Homogeneous" = "solid", "Heterogeneous" = "dashed")
+      values = c("Homogeneous" = "solid", "Heterogeneous" = "dashed"),
+      labels = model_labels(hsir_label)
     ) +
     ggplot2::scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
     ggplot2::labs(
       x = "Time (days)",
-      y = "Remaining attack rate (relative to eventual total)",
+      y = "Remaining epidemic size (relative to FES)",
       color = "NPI effectiveness",
-      linetype = "Susceptibility type"
+      linetype = model_legend_title
     ) +
     ggplot2::theme_minimal(base_size = 13) +
     ggplot2::theme(
@@ -1646,7 +1861,8 @@ make_npi_marginal_value_df <- function(attack_curve, population_size = 1e6) {
 plot_npi_marginal_value <- function(
     marginal_df,
     start_keep = c(5, 10, 15, 20),
-    dur_max_display = 150
+    dur_max_display = 150,
+    hsir_label = "\u03bd = 1"
 ) {
   df <- marginal_df |>
     dplyr::filter(NPI_start %in% start_keep) |>
@@ -1677,7 +1893,8 @@ plot_npi_marginal_value <- function(
     ggplot2::coord_cartesian(xlim = c(0, dur_max_display)) +
     ggplot2::scale_color_viridis_d(option = "plasma", end = 0.85) +
     ggplot2::scale_linetype_manual(
-      values = c("Homogeneous" = "solid", "Heterogeneous" = "dashed")
+      values = c("Homogeneous" = "solid", "Heterogeneous" = "dashed"),
+      labels = model_labels(hsir_label)
     ) +
     ggplot2::scale_y_continuous(
       labels = scales::label_number(big.mark = ",", accuracy = 1)
@@ -1686,7 +1903,7 @@ plot_npi_marginal_value <- function(
       x = "NPI duration (days)",
       y = "Infections averted per additional NPI day",
       color = "NPI effectiveness",
-      linetype = "Susceptibility type"
+      linetype = model_legend_title
     ) +
     ggplot2::theme_minimal(base_size = 13) +
     ggplot2::theme(
@@ -1746,8 +1963,8 @@ fts_param_ridge_df <- function(
   )
   cv_levels <- sort(unique(meta$cv))
   meta$cv_lab <- factor(
-    sprintf("cv = %g", meta$cv),
-    levels = rev(sprintf("cv = %g", cv_levels))
+    sprintf("\u03bd = %g", meta$cv),
+    levels = rev(sprintf("\u03bd = %g", cv_levels))
   )
   
   disp <- c(beta = "beta", gamma = "gamma", R0 = "R[0]", cv = "nu")
@@ -1800,7 +2017,7 @@ fts_param_ridge_plot <- function(ridge_df) {
     ) +
     ggplot2::scale_fill_viridis_d(guide = "none") +
     ggplot2::labs(x = NULL, y = NULL) +
-    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme_minimal(base_size = 14) +
     ggplot2::theme(
       strip.text = ggplot2::element_text(face = "bold"),
       strip.text.y.right = ggplot2::element_text(angle = 270)
@@ -1898,7 +2115,7 @@ convergence_df_voi <- function(spec, paths) {
 
 convergence_df_npi <- function(spec, paths) {
   lab <- sprintf(
-    "NPI \u2014 %g GI post-implementation, eff = %g%%",
+    "NPI \u2014 %g GI after NPI start, eff = %g%%",
     spec$n_intervals, 100 * spec$eff
   )
   if ("cv" %in% names(spec)) lab <- sprintf("%s, cv = %g", lab, spec$cv)
